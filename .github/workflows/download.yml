@@ -9,20 +9,21 @@ jobs:
 
     env:
       MASYAANYA_FILE_ID: 1Q3SwSjayWB-OZENGGdxKnPakxpKJLh52
-      APP_ID: com.nurasql77.masyainstaller
 
     steps:
 
-      # ---------------------------------------------------------
-      # 1. Repository
-      # ---------------------------------------------------------
-      - name: Checkout repository
+      # =========================================================
+      # CHECKOUT
+      # =========================================================
+
+      - name: Checkout
         uses: actions/checkout@v4
 
 
-      # ---------------------------------------------------------
-      # 2. Java
-      # ---------------------------------------------------------
+      # =========================================================
+      # JAVA 17
+      # =========================================================
+
       - name: Setup Java 17
         uses: actions/setup-java@v4
         with:
@@ -30,9 +31,10 @@ jobs:
           java-version: "17"
 
 
-      # ---------------------------------------------------------
-      # 3. Download Masyaanya APK from Google Drive
-      # ---------------------------------------------------------
+      # =========================================================
+      # DOWNLOAD MASYAANYA APK
+      # =========================================================
+
       - name: Download Masyaanya APK
         shell: bash
         run: |
@@ -49,13 +51,14 @@ jobs:
 
           unzip -t Masyaanya.apk >/dev/null
 
-          echo "Downloaded Masyaanya.apk:"
+          echo "Masyaanya.apk downloaded:"
           ls -lh Masyaanya.apk
 
 
-      # ---------------------------------------------------------
-      # 4. Android SDK
-      # ---------------------------------------------------------
+      # =========================================================
+      # ANDROID SDK
+      # =========================================================
+
       - name: Setup Android SDK
         shell: bash
         run: |
@@ -81,8 +84,7 @@ jobs:
             exit 1
           fi
 
-          echo "Using sdkmanager:"
-          echo "$SDKMANAGER"
+          echo "sdkmanager: $SDKMANAGER"
 
           yes | "$SDKMANAGER" --licenses >/dev/null || true
 
@@ -91,9 +93,10 @@ jobs:
             "build-tools;34.0.0"
 
 
-      # ---------------------------------------------------------
-      # 5. Gradle
-      # ---------------------------------------------------------
+      # =========================================================
+      # GRADLE
+      # =========================================================
+
       - name: Install Gradle 8.9
         shell: bash
         run: |
@@ -109,18 +112,19 @@ jobs:
           gradle --version
 
 
-      # ---------------------------------------------------------
-      # 6. Create Android project
-      # ---------------------------------------------------------
+      # =========================================================
+      # CREATE ANDROID PROJECT
+      # =========================================================
+
       - name: Create Android project
         shell: bash
         run: |
           set -e
 
           rm -rf app
-          rm -rf build.gradle
-          rm -rf settings.gradle
-          rm -rf gradle.properties
+          rm -f build.gradle
+          rm -f settings.gradle
+          rm -f gradle.properties
 
           mkdir -p \
             app/src/main/java/com/nurasql77/masyainstaller \
@@ -132,9 +136,10 @@ jobs:
             app/src/main/assets/Masyaanya.apk
 
 
-          # -----------------------------------------------------
+          # =======================================================
           # settings.gradle
-          # -----------------------------------------------------
+          # =======================================================
+
           cat > settings.gradle <<'EOF'
           import org.gradle.api.initialization.resolve.RepositoriesMode
 
@@ -161,9 +166,10 @@ jobs:
           EOF
 
 
-          # -----------------------------------------------------
-          # Root build.gradle
-          # -----------------------------------------------------
+          # =======================================================
+          # build.gradle
+          # =======================================================
+
           cat > build.gradle <<'EOF'
           plugins {
               id 'com.android.application' version '8.7.3' apply false
@@ -171,9 +177,10 @@ jobs:
           EOF
 
 
-          # -----------------------------------------------------
+          # =======================================================
           # gradle.properties
-          # -----------------------------------------------------
+          # =======================================================
+
           cat > gradle.properties <<'EOF'
           org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
           android.useAndroidX=true
@@ -181,9 +188,10 @@ jobs:
           EOF
 
 
-          # -----------------------------------------------------
+          # =======================================================
           # app/build.gradle
-          # -----------------------------------------------------
+          # =======================================================
+
           cat > app/build.gradle <<'EOF'
           plugins {
               id 'com.android.application'
@@ -222,13 +230,15 @@ jobs:
           EOF
 
 
-          # -----------------------------------------------------
+          # =======================================================
           # AndroidManifest.xml
-          # -----------------------------------------------------
+          # =======================================================
+
           cat > app/src/main/AndroidManifest.xml <<'EOF'
           <?xml version="1.0" encoding="utf-8"?>
 
-          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+          <manifest
+              xmlns:android="http://schemas.android.com/apk/res/android">
 
               <application
                   android:allowBackup="false"
@@ -248,7 +258,6 @@ jobs:
                   </activity>
 
 
-                  <!-- Required by Shizuku -->
                   <provider
                       android:name="rikka.shizuku.ShizukuProvider"
                       android:authorities="${applicationId}.shizuku"
@@ -263,9 +272,10 @@ jobs:
           EOF
 
 
-          # -----------------------------------------------------
+          # =======================================================
           # styles.xml
-          # -----------------------------------------------------
+          # =======================================================
+
           cat > app/src/main/res/values/styles.xml <<'EOF'
           <?xml version="1.0" encoding="utf-8"?>
 
@@ -277,8 +287,8 @@ jobs:
 
                   <item name="android:fontFamily">sans</item>
                   <item name="android:colorAccent">#3F51B5</item>
-                  <item name="android:navigationBarColor">#000000</item>
                   <item name="android:statusBarColor">#000000</item>
+                  <item name="android:navigationBarColor">#000000</item>
 
               </style>
 
@@ -286,29 +296,36 @@ jobs:
           EOF
 
 
-          # -----------------------------------------------------
+          # =======================================================
           # AIDL
-          # -----------------------------------------------------
+          #
+          # IMPORTANT:
+          # EVERY method has an ID.
+          #
+          # destroy = Shizuku reserved ID
+          # install = our ID
+          # =======================================================
+
           cat > app/src/main/aidl/com/nurasql77/masyainstaller/IInstallerService.aidl <<'EOF'
           package com.nurasql77.masyainstaller;
 
           interface IInstallerService {
 
-              void install(String apkPath);
-
               void destroy() = 16777114;
+
+              void install(String apkPath) = 1;
           }
           EOF
 
 
-          # -----------------------------------------------------
+          # =======================================================
           # InstallerService.java
           #
-          # This is the Shizuku UserService.
+          # This runs as Shizuku UserService.
           #
-          # IMPORTANT:
-          # There is NO Shizuku.newProcess() here.
-          # -----------------------------------------------------
+          # NO Shizuku.newProcess()!
+          # =======================================================
+
           cat > app/src/main/java/com/nurasql77/masyainstaller/InstallerService.java <<'EOF'
           package com.nurasql77.masyainstaller;
 
@@ -338,9 +355,33 @@ jobs:
 
                   try {
 
+                      String source =
+                              shellQuote(apkPath);
+
+                      String temp =
+                              "/data/local/tmp/Masyaanya.apk";
+
                       String command =
-                              "pm install -r --user 0 "
-                                      + shellQuote(apkPath);
+                              "rm -f "
+                                      + shellQuote(temp)
+                                      + " && "
+                                      + "cp "
+                                      + source
+                                      + " "
+                                      + shellQuote(temp)
+                                      + " && "
+                                      + "chmod 644 "
+                                      + shellQuote(temp)
+                                      + " && "
+                                      + "pm install -r --user 0 "
+                                      + shellQuote(temp)
+                                      + "; "
+                                      + "RESULT=$?; "
+                                      + "rm -f "
+                                      + shellQuote(temp)
+                                      + "; "
+                                      + "exit $RESULT";
+
 
                       process =
                               Runtime.getRuntime().exec(
@@ -368,22 +409,30 @@ jobs:
                               );
 
 
-                      StringBuilder output =
+                      StringBuilder result =
                               new StringBuilder();
 
 
                       String line;
 
 
-                      while ((line = stdout.readLine()) != null) {
-                          output
+                      while (
+                              (line =
+                                      stdout.readLine()) != null
+                      ) {
+
+                          result
                                   .append(line)
                                   .append('\n');
                       }
 
 
-                      while ((line = stderr.readLine()) != null) {
-                          output
+                      while (
+                              (line =
+                                      stderr.readLine()) != null
+                      ) {
+
+                          result
                                   .append(line)
                                   .append('\n');
                       }
@@ -396,11 +445,11 @@ jobs:
                       if (exitCode != 0) {
 
                           throw new RemoteException(
-                                  "pm install failed. "
+                                  "pm install failed\n"
                                           + "Exit code: "
                                           + exitCode
                                           + "\n"
-                                          + output
+                                          + result
                           );
                       }
 
@@ -414,7 +463,7 @@ jobs:
                       throw new RemoteException(
                               "Installer error: "
                                       + e.getClass().getName()
-                                      + ": "
+                                      + "\n"
                                       + String.valueOf(
                                       e.getMessage()
                               )
@@ -443,9 +492,10 @@ jobs:
           EOF
 
 
-          # -----------------------------------------------------
+          # =======================================================
           # MainActivity.java
-          # -----------------------------------------------------
+          # =======================================================
+
           cat > app/src/main/java/com/nurasql77/masyainstaller/MainActivity.java <<'EOF'
           package com.nurasql77.masyainstaller;
 
@@ -465,7 +515,8 @@ jobs:
 
           import rikka.shizuku.Shizuku;
 
-          public class MainActivity extends Activity {
+          public class MainActivity
+                  extends Activity {
 
               private static final int REQUEST_CODE = 1001;
 
@@ -476,7 +527,8 @@ jobs:
               private Shizuku.UserServiceArgs userServiceArgs;
 
 
-              private final Shizuku.OnRequestPermissionResultListener
+              private final
+              Shizuku.OnRequestPermissionResultListener
                       permissionListener =
                       new Shizuku.OnRequestPermissionResultListener() {
 
@@ -509,7 +561,8 @@ jobs:
                       };
 
 
-              private final Shizuku.OnBinderReceivedListener
+              private final
+              Shizuku.OnBinderReceivedListener
                       binderReceivedListener =
                       new Shizuku.OnBinderReceivedListener() {
 
@@ -534,11 +587,13 @@ jobs:
 
                               installerService =
                                       IInstallerService.Stub
-                                              .asInterface(binder);
+                                              .asInterface(
+                                                      binder
+                                              );
 
 
-                              runOnUiThread(() ->
-                                      setStatus(
+                              runOnUiThread(
+                                      () -> setStatus(
                                               "UserService дайын."
                                       )
                               );
@@ -551,8 +606,8 @@ jobs:
 
                               installerService = null;
 
-                              runOnUiThread(() ->
-                                      setStatus(
+                              runOnUiThread(
+                                      () -> setStatus(
                                               "UserService ажыратылды."
                                       )
                               );
@@ -564,7 +619,9 @@ jobs:
               protected void onCreate(
                       Bundle savedInstanceState) {
 
-                  super.onCreate(savedInstanceState);
+                  super.onCreate(
+                          savedInstanceState
+                  );
 
 
                   LinearLayout layout =
@@ -592,22 +649,22 @@ jobs:
                   );
 
 
-                  Button installButton =
+                  Button install =
                           new Button(this);
 
-                  installButton.setText(
+                  install.setText(
                           "Masyaanya орнату"
                   );
 
 
-                  installButton.setOnClickListener(
+                  install.setOnClickListener(
                           v -> startInstall()
                   );
 
 
                   layout.addView(status);
 
-                  layout.addView(installButton);
+                  layout.addView(install);
 
 
                   setContentView(layout);
@@ -644,7 +701,8 @@ jobs:
 
 
                       if (Shizuku.checkSelfPermission()
-                              == PackageManager.PERMISSION_GRANTED) {
+                              ==
+                              PackageManager.PERMISSION_GRANTED) {
 
                           setStatus(
                                   "Shizuku дайын."
@@ -653,7 +711,7 @@ jobs:
                       } else {
 
                           setStatus(
-                                  "Shizuku рұқсаты керек."
+                                  "Орнату батырмасын бас."
                           );
                       }
 
@@ -662,7 +720,12 @@ jobs:
 
                       setStatus(
                               "Shizuku қатесі:\n"
-                                      + e.getMessage()
+                                      + e.getClass()
+                                      .getSimpleName()
+                                      + "\n"
+                                      + String.valueOf(
+                                      e.getMessage()
+                              )
                       );
                   }
               }
@@ -683,10 +746,11 @@ jobs:
 
 
                       if (Shizuku.checkSelfPermission()
-                              != PackageManager.PERMISSION_GRANTED) {
+                              !=
+                              PackageManager.PERMISSION_GRANTED) {
 
                           setStatus(
-                                  "Shizuku рұқсатын сұрап жатыр..."
+                                  "Shizuku рұқсаты сұралуда..."
                           );
 
                           Shizuku.requestPermission(
@@ -714,7 +778,9 @@ jobs:
                                       + e.getClass()
                                       .getSimpleName()
                                       + "\n"
-                                      + e.getMessage()
+                                      + String.valueOf(
+                                      e.getMessage()
+                              )
                       );
                   }
               }
@@ -725,7 +791,9 @@ jobs:
                   try {
 
                       if (installerService != null) {
+
                           installMasyaanya();
+
                           return;
                       }
 
@@ -766,7 +834,9 @@ jobs:
                                       + e.getClass()
                                       .getSimpleName()
                                       + "\n"
-                                      + e.getMessage()
+                                      + String.valueOf(
+                                      e.getMessage()
+                              )
                       );
                   }
               }
@@ -777,124 +847,126 @@ jobs:
                   if (installerService == null) {
 
                       setStatus(
-                              "InstallerService әлі дайын емес."
+                              "InstallerService дайын емес."
                       );
 
                       return;
                   }
 
 
-                  new Thread(() -> {
+                  new Thread(
+                          () -> {
 
-                      try {
+                              try {
 
-                          setStatus(
-                                  "Masyaanya.apk шығарып жатыр..."
-                          );
-
-
-                          File externalDir =
-                                  getExternalFilesDir(null);
-
-
-                          if (externalDir == null) {
-
-                              throw new Exception(
-                                      "External files directory жоқ."
-                              );
-                          }
-
-
-                          File apk =
-                                  new File(
-                                          externalDir,
-                                          "Masyaanya.apk"
+                                  setStatus(
+                                          "Masyaanya.apk шығарып жатыр..."
                                   );
 
 
-                          try (
-                                  InputStream input =
-                                          getAssets().open(
+                                  File externalDir =
+                                          getExternalFilesDir(
+                                                  null
+                                          );
+
+
+                                  if (externalDir == null) {
+
+                                      throw new Exception(
+                                              "External files directory жоқ."
+                                      );
+                                  }
+
+
+                                  File apk =
+                                          new File(
+                                                  externalDir,
                                                   "Masyaanya.apk"
                                           );
 
-                                  FileOutputStream output =
-                                          new FileOutputStream(
-                                                  apk
+
+                                  try (
+                                          InputStream input =
+                                                  getAssets().open(
+                                                          "Masyaanya.apk"
+                                                  );
+
+                                          FileOutputStream output =
+                                                  new FileOutputStream(
+                                                          apk
+                                                  )
+                                  ) {
+
+                                      byte[] buffer =
+                                              new byte[
+                                                      1024 * 1024
+                                                      ];
+
+                                      int count;
+
+
+                                      while (
+                                              (count =
+                                                      input.read(
+                                                              buffer
+                                                      )) != -1
+                                      ) {
+
+                                          output.write(
+                                                  buffer,
+                                                  0,
+                                                  count
+                                          );
+                                      }
+
+
+                                      output.flush();
+                                  }
+
+
+                                  if (!apk.exists()
+                                          || apk.length() == 0) {
+
+                                      throw new Exception(
+                                              "Masyaanya.apk бос немесе жоқ."
+                                      );
+                                  }
+
+
+                                  setStatus(
+                                          "APK дайын.\n"
+                                                  + "Размер: "
+                                                  + apk.length()
+                                                  + " bytes\n\n"
+                                                  + "Shizuku арқылы орнатылуда..."
+                                  );
+
+
+                                  installerService.install(
+                                          apk.getAbsolutePath()
+                                  );
+
+
+                                  setStatus(
+                                          "Masyaanya орнатылды."
+                                  );
+
+
+                              } catch (Throwable e) {
+
+                                  setStatus(
+                                          "Орнату қатесі:\n"
+                                                  + e.getClass()
+                                                  .getSimpleName()
+                                                  + "\n"
+                                                  + String.valueOf(
+                                                  e.getMessage()
                                           )
-                          ) {
-
-                              byte[] buffer =
-                                      new byte[1024 * 1024];
-
-                              int count;
-
-
-                              while (
-                                      (count =
-                                              input.read(
-                                                      buffer
-                                              )) != -1
-                              ) {
-
-                                  output.write(
-                                          buffer,
-                                          0,
-                                          count
                                   );
                               }
 
-
-                              output.flush();
                           }
-
-
-                          if (!apk.exists()
-                                  || apk.length() == 0) {
-
-                              throw new Exception(
-                                      "APK файл жасалмады."
-                              );
-                          }
-
-
-                          String apkPath =
-                                  apk.getAbsolutePath();
-
-
-                          setStatus(
-                                  "APK дайын.\n"
-                                          + "Размер: "
-                                          + apk.length()
-                                          + " bytes\n\n"
-                                          + "Орнатылуда..."
-                          );
-
-
-                          installerService.install(
-                                  apkPath
-                          );
-
-
-                          setStatus(
-                                  "Masyaanya орнату командасы орындалды."
-                          );
-
-
-                      } catch (Throwable e) {
-
-                          setStatus(
-                                  "Орнату қатесі:\n"
-                                          + e.getClass()
-                                          .getSimpleName()
-                                          + "\n"
-                                          + String.valueOf(
-                                          e.getMessage()
-                                  )
-                          );
-                      }
-
-                  }).start();
+                  ).start();
               }
 
 
@@ -943,15 +1015,18 @@ jobs:
           EOF
 
 
-          echo "Android project created."
+          echo "========================================"
+          echo "Generated Android project:"
+          echo "========================================"
 
           find app/src/main -type f -print
 
 
-      # ---------------------------------------------------------
-      # 7. Build
-      # ---------------------------------------------------------
-      - name: Build unsigned APK
+      # =========================================================
+      # BUILD
+      # =========================================================
+
+      - name: Build release APK
         shell: bash
         run: |
           set -e
@@ -961,17 +1036,19 @@ jobs:
             --stacktrace \
             :app:assembleRelease
 
-          test -f \
-            app/build/outputs/apk/release/app-release.apk
+          APK="app/build/outputs/apk/release/app-release.apk"
 
-          ls -lh \
-            app/build/outputs/apk/release/app-release.apk
+          test -f "$APK"
+
+          echo "Unsigned APK:"
+          ls -lh "$APK"
 
 
-      # ---------------------------------------------------------
-      # 8. Restore PKCS12 keystore
-      # ---------------------------------------------------------
-      - name: Restore signing key
+      # =========================================================
+      # RESTORE PKCS12
+      # =========================================================
+
+      - name: Restore PKCS12 keystore
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
@@ -980,19 +1057,22 @@ jobs:
           set -e
 
           if [ -z "$KEYSTORE_BASE64" ]; then
-            echo "KEYSTORE_BASE64 secret is empty."
+            echo "KEYSTORE_BASE64 is empty."
             exit 1
           fi
 
           if [ -z "$KEYSTORE_PASSWORD" ]; then
-            echo "KEYSTORE_PASSWORD secret is empty."
+            echo "KEYSTORE_PASSWORD is empty."
             exit 1
           fi
+
 
           printf '%s' "$KEYSTORE_BASE64" |
             base64 --decode > release.p12
 
+
           test -s release.p12
+
 
           keytool \
             -list \
@@ -1001,12 +1081,14 @@ jobs:
             -storepass "$KEYSTORE_PASSWORD" \
             >/dev/null
 
-          echo "PKCS12 keystore is valid."
+
+          echo "PKCS12 keystore OK."
 
 
-      # ---------------------------------------------------------
-      # 9. Sign APK
-      # ---------------------------------------------------------
+      # =========================================================
+      # SIGN
+      # =========================================================
+
       - name: Zipalign and sign
         env:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
@@ -1015,6 +1097,13 @@ jobs:
           set -e
 
           INPUT_APK="app/build/outputs/apk/release/app-release.apk"
+
+          BUILD_TOOLS="$ANDROID_HOME/build-tools/34.0.0"
+
+
+          # -------------------------------------------------------
+          # Detect alias automatically
+          # -------------------------------------------------------
 
           ALIAS=$(
             keytool \
@@ -1027,16 +1116,19 @@ jobs:
             head -n 1
           )
 
+
           if [ -z "$ALIAS" ]; then
             echo "Could not detect keystore alias."
             exit 1
           fi
 
+
           echo "Detected alias: $ALIAS"
 
 
-          BUILD_TOOLS="$ANDROID_HOME/build-tools/34.0.0"
-
+          # -------------------------------------------------------
+          # ZIPALIGN
+          # -------------------------------------------------------
 
           "$BUILD_TOOLS/zipalign" \
             -f \
@@ -1044,6 +1136,10 @@ jobs:
             "$INPUT_APK" \
             Masyaanya-Installer-aligned.apk
 
+
+          # -------------------------------------------------------
+          # APKSIGNER
+          # -------------------------------------------------------
 
           "$BUILD_TOOLS/apksigner" sign \
             --ks release.p12 \
@@ -1055,18 +1151,26 @@ jobs:
             Masyaanya-Installer-aligned.apk
 
 
+          # -------------------------------------------------------
+          # VERIFY SIGNATURE
+          # -------------------------------------------------------
+
           "$BUILD_TOOLS/apksigner" verify \
             --verbose \
             Masyaanya-Installer.apk
 
 
-          echo "Final APK:"
+          echo "========================================"
+          echo "FINAL APK"
+          echo "========================================"
+
           ls -lh Masyaanya-Installer.apk
 
 
-      # ---------------------------------------------------------
-      # 10. Upload final APK as GitHub Actions artifact
-      # ---------------------------------------------------------
+      # =========================================================
+      # UPLOAD ARTIFACT
+      # =========================================================
+
       - name: Upload installer APK
         uses: actions/upload-artifact@v4
         with:
