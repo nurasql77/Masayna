@@ -1,11 +1,17 @@
 
-name: Download Masyaanya APK
+name: Download and Sign Masyaanya APK
 
 on:
   workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/download.yml"
+
+permissions:
+  contents: read
 
 jobs:
-  download:
+  build:
     runs-on: ubuntu-latest
 
     steps:
@@ -13,10 +19,55 @@ jobs:
         run: |
           pip install gdown
           gdown "https://drive.google.com/uc?id=1Q3SwSjayWB-OZENGGdxKnPakxpKJLh52" -O Masyaanya.apk
+          test -s Masyaanya.apk
 
-      - name: Upload APK
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Sign APK
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+        run: |
+          set -e
+
+          echo "$KEYSTORE_BASE64" | base64 -d > release.p12
+
+          keytool -list \
+            -keystore release.p12 \
+            -storetype PKCS12 \
+            -storepass "$KEYSTORE_PASSWORD"
+
+          ALIAS=$(keytool -list -v \
+            -keystore release.p12 \
+            -storetype PKCS12 \
+            -storepass "$KEYSTORE_PASSWORD" |
+            sed -n 's/^Alias name: //p' | head -n 1)
+
+          SDK_ROOT="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
+          APKSIGNER=$(find "$SDK_ROOT/build-tools" -name apksigner -type f | sort -V | tail -n 1)
+
+          "$APKSIGNER" sign \
+            --ks release.p12 \
+            --ks-type PKCS12 \
+            --ks-key-alias "$ALIAS" \
+            --ks-pass env:KEYSTORE_PASSWORD \
+            --key-pass env:KEYSTORE_PASSWORD \
+            --out Masyaanya-signed.apk \
+            Masyaanya.apk
+
+          "$APKSIGNER" verify Masyaanya-signed.apk
+          rm -f release.p12
+
+      - name: Upload signed APK
         uses: actions/upload-artifact@v4
         with:
-          name: Masyaanya-APK
-          path: Masyaanya.apk
+          name: Masyaanya-signed
+          path: Masyaanya-signed.apk
           if-no-files-found: error
