@@ -1,0 +1,99 @@
+name: Download and Sign Masyaanya APK
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/download.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download APK
+        run: |
+          set -e
+          pip install --quiet gdown
+          gdown --fuzzy "https://drive.google.com/file/d/1Q3SwSjayWB-OZENGGdxKnPakxpKJLh52/view?usp=sharing" \
+            -O Masyaanya.apk
+          test -s Masyaanya.apk
+          file Masyaanya.apk
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install build-tools (apksigner + zipalign)
+        run: |
+          set -e
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
+            "build-tools;34.0.0" > /dev/null
+
+      - name: Sign APK
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          set -e
+
+          if [ -z "$KEYSTORE_BASE64" ] || [ -z "$KEYSTORE_PASSWORD" ] || [ -z "$KEY_PASSWORD" ]; then
+            echo "::error::Secret жоқ: KEYSTORE_BASE64 / KEYSTORE_PASSWORD / KEY_PASSWORD тексеріңіз"
+            exit 1
+          fi
+
+          echo "$KEYSTORE_BASE64" | base64 -d > release.p12
+          test -s release.p12
+
+          keytool -list \
+            -keystore release.p12 \
+            -storetype PKCS12 \
+            -storepass "$KEYSTORE_PASSWORD" > /dev/null
+
+          ALIAS=$(keytool -list \
+            -keystore release.p12 \
+            -storetype PKCS12 \
+            -storepass "$KEYSTORE_PASSWORD" |
+            sed -n 's/^Alias name: //p' | head -n 1)
+          echo "Қолданылатын alias: $ALIAS"
+
+          SDK_ROOT="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
+          BT_DIR=$(find "$SDK_ROOT/build-tools" -maxdepth 1 -mindepth 1 | sort -V | tail -n 1)
+          echo "build-tools: $BT_DIR"
+
+          # 1) zipalign — қолтаңбадан БҰРЫН
+          "$BT_DIR/zipalign" -f -p 4 \
+            Masyaanya.apk \
+            Masyaanya-aligned.apk
+
+          # 2) Қолтаңба: екі құпиясөз БӨЛЕК беріледі
+          "$BT_DIR/apksigner" sign \
+            --ks release.p12 \
+            --ks-type PKCS12 \
+            --ks-key-alias "$ALIAS" \
+            --ks-pass env:KEYSTORE_PASSWORD \
+            --key-pass env:KEY_PASSWORD \
+            --out Masyaanya-signed.apk \
+            Masyaanya-aligned.apk
+
+          # 3) Тексеру
+          "$BT_DIR/apksigner" verify --verbose Masyaanya-signed.apk
+
+          rm -f release.p12 Masyaanya-aligned.apk
+
+      - name: Upload signed APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Masyaanya-signed
+          path: Masyaanya-signed.apk
+          if-no-files-found: error
+          retention-days: 30
