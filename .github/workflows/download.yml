@@ -17,7 +17,7 @@ jobs:
       - name: Download APK
         run: |
           set -e
-          pip install --quiet gdown
+          pip install --quiet --upgrade gdown
           gdown --fuzzy "https://drive.google.com/file/d/1Q3SwSjayWB-OZENGGdxKnPakxpKJLh52/view?usp=sharing" \
             -O Masyaanya.apk
           test -s Masyaanya.apk
@@ -75,7 +75,7 @@ jobs:
             Masyaanya.apk \
             Masyaanya-aligned.apk
 
-          # 2) Қолтаңба: екі құпиясөз БӨЛЕК беріледі
+          # 2) Қолтаңба: екі құпиясөз бөлек беріледі
           "$BT_DIR/apksigner" sign \
             --ks release.p12 \
             --ks-type PKCS12 \
