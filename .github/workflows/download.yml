@@ -2,6 +2,7 @@ name: Download and Sign Masyaanya APK
 
 on:
   workflow_dispatch:
+
   push:
     branches:
       - main
@@ -18,14 +19,14 @@ jobs:
     steps:
 
       # ============================================================
-      # 1. APK-ны Google Drive-дан жүктеу
+      # 1. Download APK from Google Drive
       # ============================================================
       - name: Download APK
         shell: bash
         run: |
           set -euo pipefail
 
-          echo "gdown орнатылуда..."
+          echo "=== Installing gdown ==="
 
           python3 -m pip install \
             --quiet \
@@ -34,16 +35,15 @@ jobs:
 
           rm -f Masyaanya.apk
 
-          echo "Google Drive-дан APK жүктелуде..."
+          echo "=== Downloading APK ==="
 
           SUCCESS=0
 
           for i in 1 2 3; do
-            echo ""
-            echo "Жүктеу әрекеті: $i/3"
+            echo "Download attempt: $i/3"
 
             if python3 -m gdown \
-              "https://drive.google.com/uc?id=1Q3SwSjayWB-OZENGGdxKnPakxpKJLh52" \
+              "1Q3SwSjayWB-OZENGGdxKnPakxpKJLh52" \
               -O Masyaanya.apk; then
 
               if [ -s Masyaanya.apk ]; then
@@ -52,48 +52,39 @@ jobs:
               fi
             fi
 
-            echo "Жүктеу сәтсіз."
             rm -f Masyaanya.apk
 
             if [ "$i" -lt 3 ]; then
-              echo "10 секунд күтеміз..."
+              echo "Waiting 10 seconds..."
               sleep 10
             fi
           done
 
           if [ "$SUCCESS" -ne 1 ]; then
-            echo "::error::Google Drive-дан APK жүктелмеді."
-            echo ""
-            echo "Google Drive файлы үшін:"
-            echo "Share → General access → Anyone with the link → Viewer"
-            echo ""
+            echo "::error::Google Drive APK download failed."
+            echo "::error::The Google Drive file must be accessible without login."
             exit 1
           fi
 
-          echo ""
-          echo "Жүктелген файл:"
-          ls -lh Masyaanya.apk
+          echo "=== Download successful ==="
 
-          echo ""
-          echo "Файл түрі:"
+          ls -lh Masyaanya.apk
           file Masyaanya.apk
 
-          # APK — ZIP контейнері.
-          # Сондықтан unzip арқылы тексереміз.
+          echo "=== Checking APK ==="
+
           if ! unzip -t Masyaanya.apk >/dev/null 2>&1; then
+            echo "::error::Downloaded file is not a valid APK/ZIP!"
             echo ""
-            echo "::error::Жүктелген файл жарамды APK емес!"
-            echo ""
-            echo "Файлдың алғашқы 32 байты:"
+            echo "First bytes:"
             xxd -l 32 Masyaanya.apk || true
             exit 1
           fi
 
-          echo ""
-          echo "APK дұрыс жүктелді."
+          echo "APK is valid."
 
       # ============================================================
-      # 2. Java орнату
+      # 2. Java 17
       # ============================================================
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -102,32 +93,80 @@ jobs:
           java-version: "17"
 
       # ============================================================
-      # 3. Android SDK орнату
+      # 3. Android SDK
+      #
+      # Do NOT use:
+      # android-actions/setup-android@v3
+      #
+      # GitHub ubuntu-latest already contains Android SDK.
       # ============================================================
       - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
-      # ============================================================
-      # 4. Android Build Tools
-      # ============================================================
-      - name: Install Android Build Tools
         shell: bash
         run: |
           set -euo pipefail
 
-          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
-            --licenses >/dev/null 2>&1 || true
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
 
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
-            "build-tools;34.0.0"
+          SDKMANAGER=""
 
-          echo ""
-          echo "Build Tools орнатылды."
+          if [ -x "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" ]; then
+            SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
 
-          ls -la "$ANDROID_HOME/build-tools/34.0.0/"
+          elif [ -x "$ANDROID_HOME/cmdline-tools/16.0/bin/sdkmanager" ]; then
+            SDKMANAGER="$ANDROID_HOME/cmdline-tools/16.0/bin/sdkmanager"
+
+          else
+            SDKMANAGER=$(
+              find "$ANDROID_HOME/cmdline-tools" \
+                -type f \
+                -name sdkmanager \
+                -perm -111 \
+                2>/dev/null |
+              sort -V |
+              tail -n 1 || true
+            )
+          fi
+
+          if [ -z "$SDKMANAGER" ] || [ ! -x "$SDKMANAGER" ]; then
+            echo "::error::sdkmanager not found!"
+
+            find "$ANDROID_HOME" \
+              -maxdepth 5 \
+              -type f \
+              -name sdkmanager \
+              2>/dev/null || true
+
+            exit 1
+          fi
+
+          echo "Using sdkmanager:"
+          echo "$SDKMANAGER"
+
+          echo "=== Accepting Android SDK licenses ==="
+
+          yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
+
+          echo "=== Installing build-tools 34.0.0 ==="
+
+          "$SDKMANAGER" "build-tools;34.0.0"
+
+          echo "=== Checking build-tools ==="
+
+          if [ ! -x "$ANDROID_HOME/build-tools/34.0.0/apksigner" ]; then
+            echo "::error::apksigner not found!"
+            exit 1
+          fi
+
+          if [ ! -x "$ANDROID_HOME/build-tools/34.0.0/zipalign" ]; then
+            echo "::error::zipalign not found!"
+            exit 1
+          fi
+
+          echo "Android Build Tools ready."
 
       # ============================================================
-      # 5. APK-ны қолтаңбалау
+      # 4. Sign APK
       # ============================================================
       - name: Sign APK
         shell: bash
@@ -137,40 +176,36 @@ jobs:
         run: |
           set -euo pipefail
 
-          # ----------------------------------------------------------
-          # Secret тексеру
-          # ----------------------------------------------------------
+          echo "=== Checking secrets ==="
 
           if [ -z "$KEYSTORE_BASE64" ]; then
-            echo "::error::KEYSTORE_BASE64 secret жоқ!"
-            echo "Settings → Secrets and variables → Actions"
+            echo "::error::KEYSTORE_BASE64 secret is missing!"
             exit 1
           fi
 
           if [ -z "$KEYSTORE_PASSWORD" ]; then
-            echo "::error::KEYSTORE_PASSWORD secret жоқ!"
+            echo "::error::KEYSTORE_PASSWORD secret is missing!"
             exit 1
           fi
 
-          echo "Secret-тер табылды."
+          echo "Secrets found."
 
-          # ----------------------------------------------------------
-          # P12 файлды қалпына келтіру
-          # ----------------------------------------------------------
+          # ========================================================
+          # Restore P12
+          # ========================================================
 
           echo "$KEYSTORE_BASE64" | base64 --decode > release.p12
 
           if [ ! -s release.p12 ]; then
-            echo "::error::release.p12 бос!"
-            echo "::error::KEYSTORE_BASE64 дұрыс емес."
+            echo "::error::release.p12 is empty!"
             exit 1
           fi
 
-          echo "P12 файл қалпына келтірілді."
+          echo "P12 restored successfully."
 
-          # ----------------------------------------------------------
-          # P12 паролін тексеру
-          # ----------------------------------------------------------
+          # ========================================================
+          # Check P12 password
+          # ========================================================
 
           if ! keytool -list \
             -keystore release.p12 \
@@ -178,15 +213,15 @@ jobs:
             -storepass "$KEYSTORE_PASSWORD" \
             >/dev/null 2>&1; then
 
-            echo "::error::KEYSTORE_PASSWORD дұрыс емес немесе P12 зақымдалған!"
+            echo "::error::KEYSTORE_PASSWORD is incorrect or P12 is corrupted!"
             exit 1
           fi
 
-          echo "P12 паролі дұрыс."
+          echo "P12 password is correct."
 
-          # ----------------------------------------------------------
-          # Alias табу
-          # ----------------------------------------------------------
+          # ========================================================
+          # Find alias
+          # ========================================================
 
           ALIAS=$(
             keytool -list -v \
@@ -198,38 +233,38 @@ jobs:
           )
 
           if [ -z "$ALIAS" ]; then
-            echo "::error::P12 ішінен alias табылмады!"
+            echo "::error::Could not find alias in P12!"
             exit 1
           fi
 
-          echo "Alias табылды: $ALIAS"
+          echo "Alias found."
 
-          # ----------------------------------------------------------
-          # Build Tools жолы
-          # ----------------------------------------------------------
+          # ========================================================
+          # Build Tools
+          # ========================================================
 
           BT_DIR="$ANDROID_HOME/build-tools/34.0.0"
 
-          if [ ! -x "$BT_DIR/zipalign" ]; then
-            echo "::error::zipalign табылмады!"
+          APKSIGNER="$BT_DIR/apksigner"
+          ZIPALIGN="$BT_DIR/zipalign"
+
+          if [ ! -x "$APKSIGNER" ]; then
+            echo "::error::apksigner not found!"
             exit 1
           fi
 
-          if [ ! -x "$BT_DIR/apksigner" ]; then
-            echo "::error::apksigner табылмады!"
+          if [ ! -x "$ZIPALIGN" ]; then
+            echo "::error::zipalign not found!"
             exit 1
           fi
 
-          echo "Build Tools: $BT_DIR"
+          # ========================================================
+          # Zipalign
+          # ========================================================
 
-          # ----------------------------------------------------------
-          # APK zipalign
-          # ----------------------------------------------------------
+          echo "=== Running zipalign ==="
 
-          echo ""
-          echo "APK zipalign жасалуда..."
-
-          "$BT_DIR/zipalign" \
+          "$ZIPALIGN" \
             -f \
             -p \
             4 \
@@ -237,20 +272,19 @@ jobs:
             Masyaanya-aligned.apk
 
           if [ ! -s Masyaanya-aligned.apk ]; then
-            echo "::error::zipalign нәтижесінде APK жасалмады!"
+            echo "::error::zipalign failed!"
             exit 1
           fi
 
-          echo "zipalign дайын."
+          echo "Zipalign OK."
 
-          # ----------------------------------------------------------
-          # APK signing
-          # ----------------------------------------------------------
+          # ========================================================
+          # Sign APK
+          # ========================================================
 
-          echo ""
-          echo "APK қолтаңбалануда..."
+          echo "=== Signing APK ==="
 
-          "$BT_DIR/apksigner" sign \
+          "$APKSIGNER" sign \
             --ks release.p12 \
             --ks-type PKCS12 \
             --ks-key-alias "$ALIAS" \
@@ -262,44 +296,39 @@ jobs:
             Masyaanya-aligned.apk
 
           if [ ! -s Masyaanya-signed.apk ]; then
-            echo "::error::Қолтаңбаланған APK жасалмады!"
+            echo "::error::Signed APK was not created!"
             exit 1
           fi
 
-          echo ""
-          echo "APK қолтаңбаланды."
+          echo "Signing completed."
 
-          # ----------------------------------------------------------
-          # Signature тексеру
-          # ----------------------------------------------------------
+          # ========================================================
+          # Verify signature
+          # ========================================================
 
-          echo ""
-          echo "Қолтаңба тексерілуде..."
+          echo "=== Verifying APK ==="
 
-          "$BT_DIR/apksigner" verify \
+          "$APKSIGNER" verify \
             --verbose \
             --print-certs \
             Masyaanya-signed.apk
 
           echo ""
-          echo "Қолтаңба дұрыс."
+          echo "======================================"
+          echo " APK SIGNED SUCCESSFULLY"
+          echo "======================================"
 
-          # ----------------------------------------------------------
-          # Уақытша файлдарды өшіру
-          # ----------------------------------------------------------
+          ls -lh Masyaanya-signed.apk
+
+          # ========================================================
+          # Remove temporary files
+          # ========================================================
 
           rm -f release.p12
           rm -f Masyaanya-aligned.apk
 
-          echo ""
-          echo "Уақытша файлдар өшірілді."
-
-          echo ""
-          echo "Дайын APK:"
-          ls -lh Masyaanya-signed.apk
-
       # ============================================================
-      # 6. Дайын APK-ны Artifact ретінде сақтау
+      # 5. Upload signed APK
       # ============================================================
       - name: Upload signed APK
         uses: actions/upload-artifact@v4
