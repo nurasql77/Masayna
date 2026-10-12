@@ -13,17 +13,8 @@ jobs:
 
     steps:
 
-      # --------------------------------------------------
-      # CHECKOUT
-      # --------------------------------------------------
-
       - name: Checkout
         uses: actions/checkout@v4
-
-
-      # --------------------------------------------------
-      # CHECK SECRETS
-      # --------------------------------------------------
 
       - name: Check signing secrets
         shell: bash
@@ -40,23 +31,11 @@ jobs:
             exit 1
           fi
 
-          echo "Signing secrets are present."
-
-
-      # --------------------------------------------------
-      # JAVA
-      # --------------------------------------------------
-
       - name: Setup Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
-
-
-      # --------------------------------------------------
-      # DOWNLOAD MASYAANYA APK
-      # --------------------------------------------------
 
       - name: Install gdown
         shell: bash
@@ -73,20 +52,11 @@ jobs:
             "1Q3SwSjayWB-OZENGGdxKnPakxpKJLh52" \
             -O Masyaanya.apk
 
-          if [ ! -s Masyaanya.apk ]; then
-            echo "::error::Masyaanya.apk was not downloaded!"
-            exit 1
-          fi
+          test -s Masyaanya.apk
 
           unzip -t Masyaanya.apk >/dev/null
 
-          echo "Masyaanya APK:"
           ls -lh Masyaanya.apk
-
-
-      # --------------------------------------------------
-      # RESTORE KEYSTORE
-      # --------------------------------------------------
 
       - name: Restore signing keystore
         shell: bash
@@ -98,11 +68,6 @@ jobs:
 
           chmod 600 "$RUNNER_TEMP/release.p12"
 
-          if [ ! -s "$RUNNER_TEMP/release.p12" ]; then
-            echo "::error::Keystore was not created!"
-            exit 1
-          fi
-
           keytool \
             -list \
             -keystore "$RUNNER_TEMP/release.p12" \
@@ -110,15 +75,10 @@ jobs:
             -storepass "$KEYSTORE_PASSWORD" \
             >/dev/null
 
-          echo "Keystore is valid."
-
           echo "KEYSTORE_PATH=$RUNNER_TEMP/release.p12" \
             >> "$GITHUB_ENV"
 
-
-      # --------------------------------------------------
-      # ANDROID SDK
-      # --------------------------------------------------
+          echo "Keystore is valid."
 
       - name: Prepare Android SDK
         shell: bash
@@ -138,21 +98,11 @@ jobs:
             exit 1
           fi
 
-          echo "SDKMANAGER=$SDKMANAGER" >> "$GITHUB_ENV"
-
-          yes | "$SDKMANAGER" --licenses \
-            >/dev/null 2>&1 || true
+          yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
 
           "$SDKMANAGER" \
             "platforms;android-35" \
             "build-tools;34.0.0"
-
-          echo "Android SDK ready."
-
-
-      # --------------------------------------------------
-      # CREATE INSTALLER PROJECT
-      # --------------------------------------------------
 
       - name: Create installer project
         shell: bash
@@ -169,11 +119,6 @@ jobs:
 
           cp Masyaanya.apk \
             installer/app/src/main/assets/Masyaanya.apk
-
-
-          # ------------------------------
-          # settings.gradle
-          # ------------------------------
 
           cat > installer/settings.gradle <<'EOF'
 pluginManagement {
@@ -198,32 +143,17 @@ rootProject.name = "MasyaanyaInstaller"
 include(":app")
 EOF
 
-
-          # ------------------------------
-          # root build.gradle
-          # ------------------------------
-
           cat > installer/build.gradle <<'EOF'
 plugins {
     id 'com.android.application' version '8.7.3' apply false
 }
 EOF
 
-
-          # ------------------------------
-          # gradle.properties
-          # ------------------------------
-
           cat > installer/gradle.properties <<'EOF'
 org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
 android.useAndroidX=true
 android.nonTransitiveRClass=false
 EOF
-
-
-          # ------------------------------
-          # app/build.gradle
-          # ------------------------------
 
           cat > installer/app/build.gradle <<'EOF'
 plugins {
@@ -238,9 +168,7 @@ android {
     defaultConfig {
         applicationId 'com.nurasql77.masyaanya.installer'
 
-        // Shizuku requires API 24+
         minSdk 24
-
         targetSdk 35
 
         versionCode 1
@@ -266,11 +194,6 @@ dependencies {
 }
 EOF
 
-
-          # ------------------------------
-          # AndroidManifest.xml
-          # ------------------------------
-
           cat > installer/app/src/main/AndroidManifest.xml <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 
@@ -294,22 +217,10 @@ EOF
 
         </activity>
 
-        <provider
-            android:name="rikka.shizuku.ShizukuProvider"
-            android:authorities="${applicationId}.shizuku"
-            android:exported="true"
-            android:multiprocess="false"
-            android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
-
     </application>
 
 </manifest>
 EOF
-
-
-          # ------------------------------
-          # strings.xml
-          # ------------------------------
 
           cat > installer/app/src/main/res/values/strings.xml <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
@@ -318,11 +229,6 @@ EOF
     <string name="app_name">Masyaanya Installer</string>
 </resources>
 EOF
-
-
-          # ------------------------------
-          # styles.xml
-          # ------------------------------
 
           cat > installer/app/src/main/res/values/styles.xml <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
@@ -340,54 +246,35 @@ EOF
 </resources>
 EOF
 
-
-          # ------------------------------
-          # activity_main.xml
-          # ------------------------------
-
           cat > installer/app/src/main/res/layout/activity_main.xml <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 
 <LinearLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
-
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-
     android:orientation="vertical"
     android:gravity="center"
-
     android:padding="24dp">
 
     <TextView
         android:id="@+id/status"
-
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-
         android:text="Masyaanya Installer"
         android:textSize="20sp"
-
         android:gravity="center"
         android:padding="16dp" />
 
     <Button
         android:id="@+id/installButton"
-
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-
         android:text="Install Masyaanya"
-
         android:layout_marginTop="20dp" />
 
 </LinearLayout>
 EOF
-
-
-          # ------------------------------
-          # MainActivity.java
-          # ------------------------------
 
           cat > installer/app/src/main/java/com/nurasql77/masyaanya/MainActivity.java <<'EOF'
 package com.nurasql77.masyaanya;
@@ -407,7 +294,6 @@ import java.io.InputStreamReader;
 import java.io.OutputStream;
 
 import rikka.shizuku.Shizuku;
-import rikka.shizuku.ShizukuRemoteProcess;
 
 public class MainActivity extends Activity {
 
@@ -425,26 +311,15 @@ public class MainActivity extends Activity {
 
         runOnUiThread(() -> {
 
-            if (grantResult ==
-                    PackageManager.PERMISSION_GRANTED) {
-
-                status.setText(
-                        "Shizuku permission granted."
-                );
-
+            if (grantResult == PackageManager.PERMISSION_GRANTED) {
+                status.setText("Shizuku permission granted.");
                 installMasyaanya();
-
             } else {
-
-                status.setText(
-                        "Shizuku permission denied."
-                );
-
+                status.setText("Shizuku permission denied.");
                 installButton.setEnabled(true);
             }
         });
     };
-
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -452,11 +327,8 @@ public class MainActivity extends Activity {
 
         setContentView(R.layout.activity_main);
 
-        status =
-                findViewById(R.id.status);
-
-        installButton =
-                findViewById(R.id.installButton);
+        status = findViewById(R.id.status);
+        installButton = findViewById(R.id.installButton);
 
         Shizuku.addRequestPermissionResultListener(
                 permissionListener
@@ -469,7 +341,6 @@ public class MainActivity extends Activity {
         updateStatus();
     }
 
-
     @Override
     protected void onDestroy() {
 
@@ -480,20 +351,15 @@ public class MainActivity extends Activity {
         super.onDestroy();
     }
 
-
     private void updateStatus() {
 
         if (!Shizuku.pingBinder()) {
 
-            status.setText(
-                    "Shizuku is not running."
-            );
-
+            status.setText("Shizuku is not running.");
             installButton.setEnabled(false);
 
             return;
         }
-
 
         if (Shizuku.checkSelfPermission()
                 != PackageManager.PERMISSION_GRANTED) {
@@ -507,26 +373,17 @@ public class MainActivity extends Activity {
             return;
         }
 
-
-        status.setText(
-                "Shizuku ready."
-        );
-
+        status.setText("Shizuku ready.");
         installButton.setEnabled(true);
     }
-
 
     private void startInstall() {
 
         if (!Shizuku.pingBinder()) {
 
-            status.setText(
-                    "Start Shizuku first."
-            );
-
+            status.setText("Start Shizuku first.");
             return;
         }
-
 
         if (Shizuku.checkSelfPermission()
                 != PackageManager.PERMISSION_GRANTED) {
@@ -535,26 +392,18 @@ public class MainActivity extends Activity {
                     "Requesting Shizuku permission..."
             );
 
-            Shizuku.requestPermission(
-                    REQUEST_CODE
-            );
+            Shizuku.requestPermission(REQUEST_CODE);
 
             return;
         }
 
-
         installMasyaanya();
     }
-
 
     private void installMasyaanya() {
 
         installButton.setEnabled(false);
-
-        status.setText(
-                "Installing Masyaanya..."
-        );
-
+        status.setText("Installing Masyaanya...");
 
         new Thread(() -> {
 
@@ -567,45 +416,37 @@ public class MainActivity extends Activity {
                         "Masyaanya.apk"
                 );
 
+                copyAsset("Masyaanya.apk", apk);
 
-                // Copy APK from assets
-                copyAsset(
-                        "Masyaanya.apk",
-                        apk
-                );
-
-
-                // Temporary location available to shell
                 String remote =
                         "/data/local/tmp/Masyaanya.apk";
 
-
-                // Upload APK through Shizuku
-                String[] copyCommand = {
-                        "sh",
-                        "-c",
-                        "cat > " + remote
-                };
-
-
-                ShizukuRemoteProcess copy =
+                /*
+                 * Send APK through Shizuku.
+                 *
+                 * We use Process directly from Shizuku.newProcess()
+                 * and write the APK to stdin.
+                 */
+                Process copyProcess =
                         Shizuku.newProcess(
-                                copyCommand,
+                                new String[]{
+                                        "sh",
+                                        "-c",
+                                        "cat > " + remote
+                                },
                                 null,
                                 null
                         );
-
 
                 try (
                         InputStream in =
                                 new FileInputStream(apk);
 
                         OutputStream out =
-                                copy.getOutputStream()
+                                copyProcess.getOutputStream()
                 ) {
 
-                    byte[] buffer =
-                            new byte[8192];
+                    byte[] buffer = new byte[8192];
 
                     int n;
 
@@ -616,44 +457,49 @@ public class MainActivity extends Activity {
                     out.flush();
                 }
 
-
                 int copyResult =
-                        copy.waitFor();
-
+                        copyProcess.waitFor();
 
                 if (copyResult != 0) {
-
                     throw new Exception(
-                            "Copy failed: "
+                            "APK copy failed: "
                                     + copyResult
                     );
                 }
 
-
-                // Install using Package Manager
-                String[] installCommand = {
-                        "sh",
-                        "-c",
-                        "pm install -r --user 0 "
-                                + remote
-                };
-
-
-                ShizukuRemoteProcess process =
+                /*
+                 * Install APK.
+                 */
+                Process installProcess =
                         Shizuku.newProcess(
-                                installCommand,
+                                new String[]{
+                                        "sh",
+                                        "-c",
+                                        "pm install -r --user 0 "
+                                                + remote
+                                },
                                 null,
                                 null
                         );
 
-
                 String output =
-                        readOutput(process);
-
+                        readOutput(installProcess);
 
                 int result =
-                        process.waitFor();
+                        installProcess.waitFor();
 
+                /*
+                 * Cleanup.
+                 */
+                Shizuku.newProcess(
+                        new String[]{
+                                "sh",
+                                "-c",
+                                "rm -f " + remote
+                        },
+                        null,
+                        null
+                ).waitFor();
 
                 if (result != 0) {
 
@@ -663,29 +509,7 @@ public class MainActivity extends Activity {
                     );
                 }
 
-
-                // Cleanup
-                String[] cleanupCommand = {
-                        "sh",
-                        "-c",
-                        "rm -f " + remote
-                };
-
-
-                ShizukuRemoteProcess cleanup =
-                        Shizuku.newProcess(
-                                cleanupCommand,
-                                null,
-                                null
-                        );
-
-
-                cleanup.waitFor();
-
-
-                final String finalOutput =
-                        output;
-
+                final String finalOutput = output;
 
                 runOnUiThread(() -> {
 
@@ -697,7 +521,6 @@ public class MainActivity extends Activity {
                     installButton.setEnabled(true);
                 });
 
-
             } catch (Exception e) {
 
                 final String error =
@@ -706,7 +529,6 @@ public class MainActivity extends Activity {
                                 + String.valueOf(
                                         e.getMessage()
                                 );
-
 
                 runOnUiThread(() -> {
 
@@ -718,7 +540,6 @@ public class MainActivity extends Activity {
                     installButton.setEnabled(true);
                 });
 
-
             } finally {
 
                 if (apk != null) {
@@ -729,7 +550,6 @@ public class MainActivity extends Activity {
 
         }).start();
     }
-
 
     private void copyAsset(
             String name,
@@ -744,8 +564,7 @@ public class MainActivity extends Activity {
                         new FileOutputStream(destination)
         ) {
 
-            byte[] buffer =
-                    new byte[8192];
+            byte[] buffer = new byte[8192];
 
             int n;
 
@@ -757,9 +576,8 @@ public class MainActivity extends Activity {
         }
     }
 
-
     private String readOutput(
-            ShizukuRemoteProcess process
+            Process process
     ) throws Exception {
 
         BufferedReader reader =
@@ -769,13 +587,10 @@ public class MainActivity extends Activity {
                         )
                 );
 
-
         StringBuilder result =
                 new StringBuilder();
 
-
         String line;
-
 
         while ((line = reader.readLine()) != null) {
 
@@ -786,19 +601,12 @@ public class MainActivity extends Activity {
             result.append(line);
         }
 
-
         return result.toString();
     }
 }
 EOF
 
-
           echo "Installer project created."
-
-
-      # --------------------------------------------------
-      # GRADLE
-      # --------------------------------------------------
 
       - name: Setup Gradle 8.9
         shell: bash
@@ -809,22 +617,13 @@ EOF
             -o "$HOME/gradle.zip" \
             https://services.gradle.org/distributions/gradle-8.9-bin.zip
 
-          unzip -q \
-            "$HOME/gradle.zip" \
-            -d "$HOME"
+          unzip -q "$HOME/gradle.zip" -d "$HOME"
 
           rm -f "$HOME/gradle.zip"
 
-          echo "$HOME/gradle-8.9/bin" \
-            >> "$GITHUB_PATH"
+          echo "$HOME/gradle-8.9/bin" >> "$GITHUB_PATH"
 
-          "$HOME/gradle-8.9/bin/gradle" \
-            --version
-
-
-      # --------------------------------------------------
-      # BUILD
-      # --------------------------------------------------
+          "$HOME/gradle-8.9/bin/gradle" --version
 
       - name: Build unsigned APK
         shell: bash
@@ -838,20 +637,8 @@ EOF
             --stacktrace \
             :app:assembleRelease
 
-          if [ ! -f \
-            "app/build/outputs/apk/release/app-release-unsigned.apk"
-          ]; then
-            echo "::error::Unsigned APK was not created!"
-            exit 1
-          fi
-
-          ls -lh \
+          test -f \
             app/build/outputs/apk/release/app-release-unsigned.apk
-
-
-      # --------------------------------------------------
-      # FIND ALIAS
-      # --------------------------------------------------
 
       - name: Find keystore alias
         shell: bash
@@ -872,15 +659,7 @@ EOF
             exit 1
           fi
 
-          echo "KEY_ALIAS=$ALIAS" \
-            >> "$GITHUB_ENV"
-
-          echo "Keystore alias found."
-
-
-      # --------------------------------------------------
-      # ZIPALIGN
-      # --------------------------------------------------
+          echo "KEY_ALIAS=$ALIAS" >> "$GITHUB_ENV"
 
       - name: Zipalign APK
         shell: bash
@@ -889,11 +668,6 @@ EOF
 
           ZIPALIGN="$ANDROID_HOME/build-tools/34.0.0/zipalign"
 
-          if [ ! -x "$ZIPALIGN" ]; then
-            echo "::error::zipalign not found!"
-            exit 1
-          fi
-
           "$ZIPALIGN" \
             -p \
             -f \
@@ -901,24 +675,12 @@ EOF
             installer/app/build/outputs/apk/release/app-release-unsigned.apk \
             installer-aligned.apk
 
-          ls -lh installer-aligned.apk
-
-
-      # --------------------------------------------------
-      # SIGN
-      # --------------------------------------------------
-
       - name: Sign APK
         shell: bash
         run: |
           set -euo pipefail
 
           APKSIGNER="$ANDROID_HOME/build-tools/34.0.0/apksigner"
-
-          if [ ! -x "$APKSIGNER" ]; then
-            echo "::error::apksigner not found!"
-            exit 1
-          fi
 
           "$APKSIGNER" sign \
             --ks "$KEYSTORE_PATH" \
@@ -932,29 +694,15 @@ EOF
             --out Masyaanya-Installer.apk \
             installer-aligned.apk
 
-          ls -lh Masyaanya-Installer.apk
-
-
-      # --------------------------------------------------
-      # VERIFY SIGNATURE
-      # --------------------------------------------------
-
       - name: Verify APK signature
         shell: bash
         run: |
           set -euo pipefail
 
-          APKSIGNER="$ANDROID_HOME/build-tools/34.0.0/apksigner"
-
-          "$APKSIGNER" verify \
+          "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify \
             --verbose \
             --print-certs \
             Masyaanya-Installer.apk
-
-
-      # --------------------------------------------------
-      # UPLOAD ARTIFACT
-      # --------------------------------------------------
 
       - name: Upload installer APK
         uses: actions/upload-artifact@v4
