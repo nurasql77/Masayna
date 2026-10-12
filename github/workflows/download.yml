@@ -1,0 +1,22 @@
+
+name: Download Masyaanya APK
+
+on:
+  workflow_dispatch:
+
+jobs:
+  download:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download APK
+        run: |
+          pip install gdown
+          gdown "https://drive.google.com/uc?id=1Q3SwSjayWB-OZENGGdxKnPakxpKJLh52" -O Masyaanya.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Masyaanya-APK
+          path: Masyaanya.apk
+          if-no-files-found: error
