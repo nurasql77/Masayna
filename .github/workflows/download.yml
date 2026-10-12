@@ -14,15 +14,46 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # ---------------------------------------------------------------
+      # 1. APK жүктеп алу (Google Drive)
+      # ---------------------------------------------------------------
       - name: Download APK
         run: |
           set -e
-          pip install --quiet --upgrade gdown
-          gdown --fuzzy "https://drive.google.com/file/d/1Q3SwSjayWB-OZENGGdxKnPakxpKJLh52/view?usp=sharing" \
-            -O Masyaanya.apk
-          test -s Masyaanya.apk
-          file Masyaanya.apk
 
+          # pip жаңартуларын өшіріп, нақты нұсқаны орнатамыз
+          python3 -m pip install --quiet --disable-pip-version-check "gdown==5.9.0"
+
+          # PATH-тағы ескі gdown-ды айналып өту: python3 -m арқылы ғана шақырамыз
+          # 3 рет қайталаумен жүктейміз (Drive уақытша қате беруі мүмкін)
+          ok=0
+          for i in 1 2 3; do
+            if python3 -m gdown --fuzzy \
+              "https://drive.google.com/file/d/1Q3SwSjayWB-OZENGGdxKnPakxpKJLh52/view?usp=sharing" \
+              -O Masyaanya.apk; then
+              ok=1
+              break
+            fi
+            echo "Жүктеу сәтсіз ($i-әрекет), 10 сек күтеміз..."
+            sleep 10
+          done
+
+          if [ "$ok" -ne 1 ]; then
+            echo "::error::APK жүктелмеді. Дисктегі файл 'Anyone with the link' ретінде ашық екенін тексеріңіз!"
+            exit 1
+          fi
+
+          # Файл шынымен APK (zip форматы) екенін тексереміз
+          test -s Masyaanya.apk || { echo "::error::Жүктелген файл бос!"; exit 1; }
+          file Masyaanya.apk
+          file Masyaanya.apk | grep -qiE "zip|android|Java" || {
+            echo "::error::Бұл APK емес сияқты! Дискте дұрыс файл тұр ма?";
+            exit 1
+          }
+
+      # ---------------------------------------------------------------
+      # 2. Java және Android SDK
+      # ---------------------------------------------------------------
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
@@ -36,8 +67,13 @@ jobs:
         run: |
           set -e
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
+            --licenses > /dev/null 2>&1 || true
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
             "build-tools;34.0.0" > /dev/null
 
+      # ---------------------------------------------------------------
+      # 3. APK-ны қолтаңбалау
+      # ---------------------------------------------------------------
       - name: Sign APK
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
@@ -46,50 +82,78 @@ jobs:
         run: |
           set -e
 
-          if [ -z "$KEYSTORE_BASE64" ] || [ -z "$KEYSTORE_PASSWORD" ] || [ -z "$KEY_PASSWORD" ]; then
-            echo "::error::Secret жоқ: KEYSTORE_BASE64 / KEYSTORE_PASSWORD / KEY_PASSWORD тексеріңіз"
+          # --- 3.1 Secret-тер бар ма? ---
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "::error::KEYSTORE_BASE64 secret жоқ! Settings → Secrets and variables → Actions ішінен қосыңыз"
+            exit 1
+          fi
+          if [ -z "$KEYSTORE_PASSWORD" ]; then
+            echo "::error::KEYSTORE_PASSWORD secret жоқ!"
+            exit 1
+          fi
+          if [ -z "$KEY_PASSWORD" ]; then
+            echo "::error::KEY_PASSWORD secret жоқ!"
             exit 1
           fi
 
+          # --- 3.2 Keystore файлын қалпына келтіру ---
           echo "$KEYSTORE_BASE64" | base64 -d > release.p12
-          test -s release.p12
+          test -s release.p12 || { echo "::error::KEYSTORE_BASE64 зақымдалған (base64 дұрыс емес)"; exit 1; }
+          file release.p12
 
-          keytool -list \
-            -keystore release.p12 \
-            -storetype PKCS12 \
-            -storepass "$KEYSTORE_PASSWORD" > /dev/null
+          # --- 3.3 Құпиясөз дұрыс па? ---
+          if ! keytool -list \
+              -keystore release.p12 \
+              -storetype PKCS12 \
+              -storepass "$KEYSTORE_PASSWORD" > /dev/null 2>&1; then
+            echo "::error::KEYSTORE_PASSWORD дұрыс емес немесе p12 зақымдалған!"
+            exit 1
+          fi
 
+          # --- 3.4 Alias атауын алу ---
           ALIAS=$(keytool -list \
             -keystore release.p12 \
             -storetype PKCS12 \
             -storepass "$KEYSTORE_PASSWORD" |
             sed -n 's/^Alias name: //p' | head -n 1)
+          if [ -z "$ALIAS" ]; then
+            echo "::error::Alias табылмады — p12 ішінде кілт жоқ сияқты!"
+            exit 1
+          fi
           echo "Қолданылатын alias: $ALIAS"
 
+          # --- 3.5 build-tools жолын анықтау ---
           SDK_ROOT="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
           BT_DIR=$(find "$SDK_ROOT/build-tools" -maxdepth 1 -mindepth 1 | sort -V | tail -n 1)
+          test -x "$BT_DIR/zipalign"  || { echo "::error::zipalign табылмады!"; exit 1; }
+          test -x "$BT_DIR/apksigner" || { echo "::error::apksigner табылмады!"; exit 1; }
           echo "build-tools: $BT_DIR"
 
-          # 1) zipalign — қолтаңбадан БҰРЫН
-          "$BT_DIR/zipalign" -f -p 4 \
-            Masyaanya.apk \
-            Masyaanya-aligned.apk
+          # --- 3.6 zipalign (қолтаңбадан БҰРЫН міндетті) ---
+          "$BT_DIR/zipalign" -f -p 4 Masyaanya.apk Masyaanya-aligned.apk
 
-          # 2) Қолтаңба: екі құпиясөз бөлек беріледі
+          # --- 3.7 Қолтаңба (v1+v2+v3 схемаларымен) ---
           "$BT_DIR/apksigner" sign \
             --ks release.p12 \
             --ks-type PKCS12 \
             --ks-key-alias "$ALIAS" \
             --ks-pass env:KEYSTORE_PASSWORD \
             --key-pass env:KEY_PASSWORD \
+            --v1-signing-enabled true \
+            --v2-signing-enabled true \
+            --v3-signing-enabled true \
             --out Masyaanya-signed.apk \
             Masyaanya-aligned.apk
 
-          # 3) Тексеру
-          "$BT_DIR/apksigner" verify --verbose Masyaanya-signed.apk
+          # --- 3.8 Нәтижені тексеру ---
+          "$BT_DIR/apksigner" verify --print-certs Masyaanya-signed.apk
 
+          # --- 3.9 Уақытша файлдарды өшіру (secret қауіпсіздігі) ---
           rm -f release.p12 Masyaanya-aligned.apk
 
+      # ---------------------------------------------------------------
+      # 4. Дайын APK-ны artifact ретінде жүктеу
+      # ---------------------------------------------------------------
       - name: Upload signed APK
         uses: actions/upload-artifact@v4
         with:
