@@ -1,692 +1,1075 @@
 name: Build Masyaanya Installer
 
 on:
-workflow_dispatch:
+  workflow_dispatch:
 
 jobs:
-build:
-runs-on: ubuntu-latest
+  build:
+    runs-on: ubuntu-latest
 
-env:
-  DRIVE_FILE_ID: 1Q3SwSjayWB-OZENGGdxKnPakxpKJLh52
+    env:
+      MASYAANYA_FILE_ID: 1Q3SwSjayWB-OZENGGdxKnPakxpKJLh52
+      APP_ID: com.nurasql77.masyainstaller
 
-steps:
+    steps:
 
-  - name: Checkout
-    uses: actions/checkout@v4
+      # ---------------------------------------------------------
+      # 1. Repository
+      # ---------------------------------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-  - name: Setup Java
-    uses: actions/setup-java@v4
-    with:
-      distribution: temurin
-      java-version: "17"
 
-  - name: Download Masyaanya APK
-    run: |
-      python3 -m pip install --upgrade pip
-      python3 -m pip install gdown==5.2.0
+      # ---------------------------------------------------------
+      # 2. Java
+      # ---------------------------------------------------------
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
 
-      python3 -m gdown \
-        "$DRIVE_FILE_ID" \
-        -O Masyaanya.apk
 
-      test -s Masyaanya.apk
-      unzip -t Masyaanya.apk >/dev/null
+      # ---------------------------------------------------------
+      # 3. Download Masyaanya APK from Google Drive
+      # ---------------------------------------------------------
+      - name: Download Masyaanya APK
+        shell: bash
+        run: |
+          set -e
 
-      echo "APK downloaded successfully"
+          python3 -m pip install --upgrade pip
+          python3 -m pip install gdown==5.2.0
 
-  - name: Setup Android SDK
-    run: |
-      SDKMANAGER=""
+          python3 -m gdown \
+            "$MASYAANYA_FILE_ID" \
+            -O Masyaanya.apk
 
-      for p in \
-        "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
-        "$ANDROID_HOME/cmdline-tools/bin/sdkmanager" \
-        "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" \
-        "$ANDROID_SDK_ROOT/cmdline-tools/bin/sdkmanager"
-      do
-        if [ -x "$p" ]; then
-          SDKMANAGER="$p"
-          break
-        fi
-      done
+          test -s Masyaanya.apk
 
-      if [ -z "$SDKMANAGER" ]; then
-        echo "sdkmanager not found"
-        exit 1
-      fi
+          unzip -t Masyaanya.apk >/dev/null
 
-      yes | "$SDKMANAGER" --licenses >/dev/null || true
+          echo "Downloaded Masyaanya.apk:"
+          ls -lh Masyaanya.apk
 
-      "$SDKMANAGER" \
-        "platforms;android-35" \
-        "build-tools;34.0.0"
 
-  - name: Install Gradle
-    run: |
-      wget -q \
-        https://services.gradle.org/distributions/gradle-8.9-bin.zip \
-        -O gradle.zip
+      # ---------------------------------------------------------
+      # 4. Android SDK
+      # ---------------------------------------------------------
+      - name: Setup Android SDK
+        shell: bash
+        run: |
+          set -e
 
-      unzip -q gradle.zip \
-        -d "$RUNNER_TEMP/gradle"
+          SDKMANAGER=""
 
-      echo "$RUNNER_TEMP/gradle/gradle-8.9/bin" \
-        >> "$GITHUB_PATH"
+          for p in \
+            "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
+            "$ANDROID_HOME/cmdline-tools/bin/sdkmanager" \
+            "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" \
+            "$ANDROID_SDK_ROOT/cmdline-tools/bin/sdkmanager"
+          do
+            if [ -x "$p" ]; then
+              SDKMANAGER="$p"
+              break
+            fi
+          done
 
-      gradle --version
+          if [ -z "$SDKMANAGER" ]; then
+            echo "sdkmanager not found"
+            find "$ANDROID_HOME" -name sdkmanager -type f 2>/dev/null || true
+            exit 1
+          fi
 
-  - name: Generate Android project
-    run: |
+          echo "Using sdkmanager:"
+          echo "$SDKMANAGER"
 
-      mkdir -p \
-        app/src/main/java/com/nurasql77/masyaanya \
-        app/src/main/aidl/com/nurasql77/masyaanya \
-        app/src/main/res/values \
-        app/src/main/assets
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
 
-      cp Masyaanya.apk \
-        app/src/main/assets/Masyaanya.apk
+          "$SDKMANAGER" \
+            "platforms;android-35" \
+            "build-tools;34.0.0"
 
-      # -------------------------
-      # settings.gradle
-      # -------------------------
 
-      cat > settings.gradle <<'EOF'
-      pluginManagement {
-          repositories {
-              google()
-              mavenCentral()
-              gradlePluginPortal()
-          }
-      }
+      # ---------------------------------------------------------
+      # 5. Gradle
+      # ---------------------------------------------------------
+      - name: Install Gradle 8.9
+        shell: bash
+        run: |
+          set -e
 
-      dependencyResolutionManagement {
-          repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
-          repositories {
-              google()
-              mavenCentral()
-          }
-      }
+          wget -q \
+            https://services.gradle.org/distributions/gradle-8.9-bin.zip
 
-      rootProject.name = "MasyaanyaInstaller"
-      include(":app")
-      EOF
+          unzip -q gradle-8.9-bin.zip
 
-      # -------------------------
-      # build.gradle
-      # -------------------------
+          echo "$PWD/gradle-8.9/bin" >> "$GITHUB_PATH"
 
-      cat > build.gradle <<'EOF'
-      plugins {
-          id 'com.android.application' version '8.7.3' apply false
-      }
-      EOF
+          gradle --version
 
-      # -------------------------
-      # gradle.properties
-      # -------------------------
 
-      cat > gradle.properties <<'EOF'
-      org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
-      android.useAndroidX=true
-      EOF
+      # ---------------------------------------------------------
+      # 6. Create Android project
+      # ---------------------------------------------------------
+      - name: Create Android project
+        shell: bash
+        run: |
+          set -e
 
-      # -------------------------
-      # app/build.gradle
-      # -------------------------
+          rm -rf app
+          rm -rf build.gradle
+          rm -rf settings.gradle
+          rm -rf gradle.properties
 
-      cat > app/build.gradle <<'EOF'
-      plugins {
-          id 'com.android.application'
-      }
+          mkdir -p \
+            app/src/main/java/com/nurasql77/masyainstaller \
+            app/src/main/aidl/com/nurasql77/masyainstaller \
+            app/src/main/res/values \
+            app/src/main/assets
 
-      android {
-          namespace 'com.nurasql77.masyaanya'
-          compileSdk 35
+          cp Masyaanya.apk \
+            app/src/main/assets/Masyaanya.apk
 
-          defaultConfig {
-              applicationId 'com.nurasql77.masyaanya.installer'
-              minSdk 24
-              targetSdk 35
-              versionCode 1
-              versionName '1.0'
-          }
 
-          buildTypes {
-              release {
-                  minifyEnabled false
-                  shrinkResources false
-              }
-          }
-      }
+          # -----------------------------------------------------
+          # settings.gradle
+          # -----------------------------------------------------
+          cat > settings.gradle <<'EOF'
+          import org.gradle.api.initialization.resolve.RepositoriesMode
 
-      dependencies {
-          implementation 'dev.rikka.shizuku:api:13.1.5'
-          implementation 'dev.rikka.shizuku:provider:13.1.5'
-      }
-      EOF
-
-      # -------------------------
-      # AIDL
-      # -------------------------
-
-      cat > app/src/main/aidl/com/nurasql77/masyaanya/IInstallerService.aidl <<'EOF'
-      package com.nurasql77.masyaanya;
-
-      interface IInstallerService {
-          void install(String apkPath);
-
-          void destroy() = 16777114;
-      }
-      EOF
-
-      # -------------------------
-      # Shizuku UserService
-      # -------------------------
-
-      cat > app/src/main/java/com/nurasql77/masyaanya/InstallerService.java <<'EOF'
-      package com.nurasql77.masyaanya;
-
-      import android.os.RemoteException;
-
-      import java.io.BufferedReader;
-      import java.io.InputStreamReader;
-
-      public class InstallerService
-              extends IInstallerService.Stub {
-
-          public InstallerService() {
-              super();
-          }
-
-          @Override
-          public void install(String apkPath)
-                  throws RemoteException {
-
-              try {
-
-                  String command =
-                          "pm install -r --user 0 \"" +
-                          apkPath.replace("\"", "\\\"") +
-                          "\"";
-
-                  Process process =
-                          Runtime.getRuntime().exec(
-                                  new String[]{
-                                          "sh",
-                                          "-c",
-                                          command
-                                  }
-                          );
-
-                  BufferedReader stdout =
-                          new BufferedReader(
-                                  new InputStreamReader(
-                                          process.getInputStream()
-                                  )
-                          );
-
-                  BufferedReader stderr =
-                          new BufferedReader(
-                                  new InputStreamReader(
-                                          process.getErrorStream()
-                                  )
-                          );
-
-                  StringBuilder result =
-                          new StringBuilder();
-
-                  String line;
-
-                  while ((line = stdout.readLine()) != null) {
-                      result.append(line).append('\n');
-                  }
-
-                  while ((line = stderr.readLine()) != null) {
-                      result.append(line).append('\n');
-                  }
-
-                  int exitCode =
-                          process.waitFor();
-
-                  if (exitCode != 0) {
-                      throw new RuntimeException(
-                              "pm install failed: " +
-                              result
-                      );
-                  }
-
-              } catch (Exception e) {
-
-                  throw new RemoteException(
-                          "Install failed: " +
-                          e.getMessage()
-                  );
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
               }
           }
 
-          @Override
-          public void destroy() {
-              System.exit(0);
-          }
-      }
-      EOF
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
 
-      # -------------------------
-      # MainActivity
-      # -------------------------
-
-      cat > app/src/main/java/com/nurasql77/masyaanya/MainActivity.java <<'EOF'
-      package com.nurasql77.masyaanya;
-
-      import android.app.Activity;
-      import android.os.Bundle;
-      import android.os.IBinder;
-      import android.content.ComponentName;
-      import android.content.ServiceConnection;
-      import android.content.pm.PackageManager;
-      import android.widget.Toast;
-
-      import java.io.File;
-      import java.io.FileOutputStream;
-      import java.io.InputStream;
-
-      import rikka.shizuku.Shizuku;
-
-      public class MainActivity extends Activity {
-
-          private IInstallerService installer;
-
-          private final ServiceConnection serviceConnection =
-                  new ServiceConnection() {
-
-                      @Override
-                      public void onServiceConnected(
-                              ComponentName name,
-                              IBinder service) {
-
-                          installer =
-                                  IInstallerService.Stub
-                                          .asInterface(service);
-
-                          installMasyaanya();
-                      }
-
-                      @Override
-                      public void onServiceDisconnected(
-                              ComponentName name) {
-
-                          installer = null;
-                      }
-                  };
-
-          private final Shizuku
-                  .OnRequestPermissionResultListener
-                  permissionListener =
-                  (requestCode, grantResult) -> {
-
-                      if (requestCode != 100) {
-                          return;
-                      }
-
-                      if (grantResult ==
-                              PackageManager.PERMISSION_GRANTED) {
-
-                          bindInstaller();
-
-                      } else {
-
-                          toast(
-                                  "Shizuku рұқсаты берілмеді"
-                          );
-                      }
-                  };
-
-          @Override
-          protected void onCreate(Bundle savedInstanceState) {
-              super.onCreate(savedInstanceState);
-
-              Shizuku.addRequestPermissionResultListener(
-                      permissionListener
-              );
-
-              if (!Shizuku.pingBinder()) {
-
-                  toast(
-                          "Shizuku іске қосылмаған"
-                  );
-
-                  return;
-              }
-
-              if (Shizuku.checkSelfPermission() !=
-                      PackageManager.PERMISSION_GRANTED) {
-
-                  Shizuku.requestPermission(100);
-
-              } else {
-
-                  bindInstaller();
+              repositories {
+                  google()
+                  mavenCentral()
               }
           }
 
-          private void bindInstaller() {
+          rootProject.name = "MasyaanyaInstaller"
 
-              try {
+          include(":app")
+          EOF
 
-                  Shizuku.UserServiceArgs args =
-                          new Shizuku.UserServiceArgs(
-                                  new ComponentName(
-                                          this,
-                                          InstallerService.class
-                                  )
-                          )
-                                  .daemon(false)
-                                  .processNameSuffix(
-                                          "installer"
-                                  )
-                                  .version(1)
-                                  .tag(
-                                          "masyaanya-installer"
-                                  );
 
-                  Shizuku.bindUserService(
-                          args,
-                          serviceConnection
-                  );
+          # -----------------------------------------------------
+          # Root build.gradle
+          # -----------------------------------------------------
+          cat > build.gradle <<'EOF'
+          plugins {
+              id 'com.android.application' version '8.7.3' apply false
+          }
+          EOF
 
-              } catch (Exception e) {
 
-                  toast(
-                          "UserService қатесі: " +
-                          e.getMessage()
-                  );
+          # -----------------------------------------------------
+          # gradle.properties
+          # -----------------------------------------------------
+          cat > gradle.properties <<'EOF'
+          org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+          android.useAndroidX=true
+          android.nonTransitiveRClass=true
+          EOF
+
+
+          # -----------------------------------------------------
+          # app/build.gradle
+          # -----------------------------------------------------
+          cat > app/build.gradle <<'EOF'
+          plugins {
+              id 'com.android.application'
+          }
+
+          android {
+              namespace 'com.nurasql77.masyainstaller'
+
+              compileSdk 35
+
+              defaultConfig {
+                  applicationId 'com.nurasql77.masyainstaller'
+
+                  minSdk 24
+                  targetSdk 35
+
+                  versionCode 1
+                  versionName '1.0'
+              }
+
+              buildFeatures {
+                  aidl true
+                  buildConfig true
+              }
+
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_17
+                  targetCompatibility JavaVersion.VERSION_17
               }
           }
 
-          private void installMasyaanya() {
+          dependencies {
+              implementation 'dev.rikka.shizuku:api:13.1.5'
+              implementation 'dev.rikka.shizuku:provider:13.1.5'
+          }
+          EOF
 
-              new Thread(() -> {
 
-                  File apk = null;
+          # -----------------------------------------------------
+          # AndroidManifest.xml
+          # -----------------------------------------------------
+          cat > app/src/main/AndroidManifest.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+              <application
+                  android:allowBackup="false"
+                  android:label="Masyaanya Installer"
+                  android:supportsRtl="true"
+                  android:theme="@style/AppTheme">
+
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true">
+
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+
+                  </activity>
+
+
+                  <!-- Required by Shizuku -->
+                  <provider
+                      android:name="rikka.shizuku.ShizukuProvider"
+                      android:authorities="${applicationId}.shizuku"
+                      android:enabled="true"
+                      android:exported="true"
+                      android:multiprocess="false"
+                      android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
+
+              </application>
+
+          </manifest>
+          EOF
+
+
+          # -----------------------------------------------------
+          # styles.xml
+          # -----------------------------------------------------
+          cat > app/src/main/res/values/styles.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+
+          <resources>
+
+              <style
+                  name="AppTheme"
+                  parent="@android:style/Theme.Material.Light.NoActionBar">
+
+                  <item name="android:fontFamily">sans</item>
+                  <item name="android:colorAccent">#3F51B5</item>
+                  <item name="android:navigationBarColor">#000000</item>
+                  <item name="android:statusBarColor">#000000</item>
+
+              </style>
+
+          </resources>
+          EOF
+
+
+          # -----------------------------------------------------
+          # AIDL
+          # -----------------------------------------------------
+          cat > app/src/main/aidl/com/nurasql77/masyainstaller/IInstallerService.aidl <<'EOF'
+          package com.nurasql77.masyainstaller;
+
+          interface IInstallerService {
+
+              void install(String apkPath);
+
+              void destroy() = 16777114;
+          }
+          EOF
+
+
+          # -----------------------------------------------------
+          # InstallerService.java
+          #
+          # This is the Shizuku UserService.
+          #
+          # IMPORTANT:
+          # There is NO Shizuku.newProcess() here.
+          # -----------------------------------------------------
+          cat > app/src/main/java/com/nurasql77/masyainstaller/InstallerService.java <<'EOF'
+          package com.nurasql77.masyainstaller;
+
+          import android.os.RemoteException;
+
+          import java.io.BufferedReader;
+          import java.io.InputStreamReader;
+
+          public class InstallerService
+                  extends IInstallerService.Stub {
+
+              public InstallerService() {
+              }
+
+
+              @Override
+              public void destroy() {
+                  System.exit(0);
+              }
+
+
+              @Override
+              public void install(String apkPath)
+                      throws RemoteException {
+
+                  Process process = null;
 
                   try {
 
-                      /*
-                       * Shell UID-ке қолжетімді орын.
-                       */
-                      File external =
-                              getExternalCacheDir();
+                      String command =
+                              "pm install -r --user 0 "
+                                      + shellQuote(apkPath);
 
-                      if (external == null) {
-                          throw new Exception(
-                                  "External cache unavailable"
-                          );
-                      }
-
-                      apk = new File(
-                              external,
-                              "Masyaanya.apk"
-                      );
-
-                      /*
-                       * APK assets/Masyaanya.apk ішінен
-                       * Android external cache-ке көшіріледі.
-                       */
-                      try (
-                              InputStream input =
-                                      getAssets().open(
-                                              "Masyaanya.apk"
-                                      );
-
-                              FileOutputStream output =
-                                      new FileOutputStream(apk)
-                      ) {
-
-                          byte[] buffer =
-                                  new byte[8192];
-
-                          int count;
-
-                          while (
-                                  (count =
-                                          input.read(buffer))
-                                          != -1
-                          ) {
-
-                              output.write(
-                                      buffer,
-                                      0,
-                                      count
+                      process =
+                              Runtime.getRuntime().exec(
+                                      new String[]{
+                                              "sh",
+                                              "-c",
+                                              command
+                                      }
                               );
-                          }
+
+
+                      BufferedReader stdout =
+                              new BufferedReader(
+                                      new InputStreamReader(
+                                              process.getInputStream()
+                                      )
+                              );
+
+
+                      BufferedReader stderr =
+                              new BufferedReader(
+                                      new InputStreamReader(
+                                              process.getErrorStream()
+                                      )
+                              );
+
+
+                      StringBuilder output =
+                              new StringBuilder();
+
+
+                      String line;
+
+
+                      while ((line = stdout.readLine()) != null) {
+                          output
+                                  .append(line)
+                                  .append('\n');
                       }
 
-                      if (installer == null) {
-                          throw new Exception(
-                                  "Installer service unavailable"
+
+                      while ((line = stderr.readLine()) != null) {
+                          output
+                                  .append(line)
+                                  .append('\n');
+                      }
+
+
+                      int exitCode =
+                              process.waitFor();
+
+
+                      if (exitCode != 0) {
+
+                          throw new RemoteException(
+                                  "pm install failed. "
+                                          + "Exit code: "
+                                          + exitCode
+                                          + "\n"
+                                          + output
                           );
                       }
 
-                      installer.install(
-                              apk.getAbsolutePath()
-                      );
 
-                      runOnUiThread(() ->
-                              toast(
-                                      "Masyaanya орнатылды!"
-                              )
-                      );
+                  } catch (RemoteException e) {
 
-                  } catch (Exception e) {
+                      throw e;
 
-                      String error =
-                              e.getMessage();
+                  } catch (Throwable e) {
 
-                      runOnUiThread(() ->
-                              toast(
-                                      "Қате: " +
-                                      error
+                      throw new RemoteException(
+                              "Installer error: "
+                                      + e.getClass().getName()
+                                      + ": "
+                                      + String.valueOf(
+                                      e.getMessage()
                               )
                       );
 
                   } finally {
 
-                      if (apk != null) {
-                          apk.delete();
+                      if (process != null) {
+                          process.destroy();
                       }
                   }
-
-              }).start();
-          }
-
-          private void toast(String text) {
-
-              Toast.makeText(
-                      this,
-                      text,
-                      Toast.LENGTH_LONG
-              ).show();
-          }
-
-          @Override
-          protected void onDestroy() {
-
-              try {
-
-                  Shizuku.UserServiceArgs args =
-                          new Shizuku.UserServiceArgs(
-                                  new ComponentName(
-                                          this,
-                                          InstallerService.class
-                                  )
-                          )
-                                  .daemon(false)
-                                  .processNameSuffix(
-                                          "installer"
-                                  )
-                                  .version(1)
-                                  .tag(
-                                          "masyaanya-installer"
-                                  );
-
-                  Shizuku.unbindUserService(
-                          args,
-                          serviceConnection,
-                          true
-                  );
-
-              } catch (Exception ignored) {
               }
 
-              Shizuku.removeRequestPermissionResultListener(
-                      permissionListener
-              );
 
-              super.onDestroy();
+              private static String shellQuote(
+                      String value) {
+
+                  return "'"
+                          + value.replace(
+                          "'",
+                          "'\\''"
+                  )
+                          + "'";
+              }
           }
-      }
-      EOF
+          EOF
 
-      # -------------------------
-      # AndroidManifest
-      # -------------------------
 
-      cat > app/src/main/AndroidManifest.xml <<'EOF'
-      <?xml version="1.0" encoding="utf-8"?>
+          # -----------------------------------------------------
+          # MainActivity.java
+          # -----------------------------------------------------
+          cat > app/src/main/java/com/nurasql77/masyainstaller/MainActivity.java <<'EOF'
+          package com.nurasql77.masyainstaller;
 
-      <manifest
-          xmlns:android="http://schemas.android.com/apk/res/android">
+          import android.app.Activity;
+          import android.content.ComponentName;
+          import android.content.ServiceConnection;
+          import android.content.pm.PackageManager;
+          import android.os.Bundle;
+          import android.os.IBinder;
+          import android.widget.Button;
+          import android.widget.LinearLayout;
+          import android.widget.TextView;
 
-          <application
-              android:allowBackup="false"
-              android:label="Masyaanya Installer"
-              android:supportsRtl="true"
-              android:theme="@style/AppTheme">
+          import java.io.File;
+          import java.io.FileOutputStream;
+          import java.io.InputStream;
 
-              <activity
-                  android:name=".MainActivity"
-                  android:exported="true">
+          import rikka.shizuku.Shizuku;
 
-                  <intent-filter>
+          public class MainActivity extends Activity {
 
-                      <action
-                          android:name="android.intent.action.MAIN" />
+              private static final int REQUEST_CODE = 1001;
 
-                      <category
-                          android:name="android.intent.category.LAUNCHER" />
+              private TextView status;
 
-                  </intent-filter>
+              private IInstallerService installerService;
 
-              </activity>
+              private Shizuku.UserServiceArgs userServiceArgs;
 
-              <!-- Shizuku Provider -->
-              <provider
-                  android:name="rikka.shizuku.ShizukuProvider"
-                  android:authorities="${applicationId}.shizuku"
-                  android:enabled="true"
-                  android:exported="true"
-                  android:multiprocess="false"
-                  android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
 
-          </application>
+              private final Shizuku.OnRequestPermissionResultListener
+                      permissionListener =
+                      new Shizuku.OnRequestPermissionResultListener() {
 
-      </manifest>
-      EOF
+                          @Override
+                          public void onRequestPermissionResult(
+                                  int requestCode,
+                                  int grantResult) {
 
-      # -------------------------
-      # Theme
-      # -------------------------
+                              if (requestCode != REQUEST_CODE) {
+                                  return;
+                              }
 
-      cat > app/src/main/res/values/styles.xml <<'EOF'
-      <?xml version="1.0" encoding="utf-8"?>
 
-      <resources>
+                              if (grantResult ==
+                                      PackageManager.PERMISSION_GRANTED) {
 
-          <style
-              name="AppTheme"
-              parent="android:style/Theme.Material.Light.NoActionBar">
+                                  setStatus(
+                                          "Shizuku рұқсаты берілді."
+                                  );
 
-              <item name="android:fontFamily">sans</item>
-              <item name="android:colorAccent">#3F51B5</item>
+                                  startUserService();
 
-          </style>
+                              } else {
 
-      </resources>
-      EOF
+                                  setStatus(
+                                          "Shizuku рұқсаты берілмеді."
+                                  );
+                              }
+                          }
+                      };
 
-  - name: Build
-    run: |
-      gradle \
-        :app:assembleRelease \
-        --no-daemon \
-        --stacktrace
 
-  - name: Restore PKCS12
-    env:
-      KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
-      KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-    run: |
-      test -n "$KEYSTORE_BASE64"
-      test -n "$KEYSTORE_PASSWORD"
+              private final Shizuku.OnBinderReceivedListener
+                      binderReceivedListener =
+                      new Shizuku.OnBinderReceivedListener() {
 
-      printf '%s' "$KEYSTORE_BASE64" |
-        base64 --decode > release.p12
+                          @Override
+                          public void onBinderReceived() {
 
-      test -s release.p12
+                              runOnUiThread(
+                                      () -> checkShizuku()
+                              );
+                          }
+                      };
 
-  - name: Sign
-    env:
-      KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-    run: |
 
-      BUILD_TOOLS="$ANDROID_HOME/build-tools/34.0.0"
+              private final ServiceConnection
+                      serviceConnection =
+                      new ServiceConnection() {
 
-      mkdir -p signed
+                          @Override
+                          public void onServiceConnected(
+                                  ComponentName name,
+                                  IBinder binder) {
 
-      "$BUILD_TOOLS/zipalign" \
-          -f 4 \
-          app/build/outputs/apk/release/app-release.apk \
-          signed/aligned.apk
+                              installerService =
+                                      IInstallerService.Stub
+                                              .asInterface(binder);
 
-      ALIAS=$(
-          keytool -list -v \
+
+                              runOnUiThread(() ->
+                                      setStatus(
+                                              "UserService дайын."
+                                      )
+                              );
+                          }
+
+
+                          @Override
+                          public void onServiceDisconnected(
+                                  ComponentName name) {
+
+                              installerService = null;
+
+                              runOnUiThread(() ->
+                                      setStatus(
+                                              "UserService ажыратылды."
+                                      )
+                              );
+                          }
+                      };
+
+
+              @Override
+              protected void onCreate(
+                      Bundle savedInstanceState) {
+
+                  super.onCreate(savedInstanceState);
+
+
+                  LinearLayout layout =
+                          new LinearLayout(this);
+
+                  layout.setOrientation(
+                          LinearLayout.VERTICAL
+                  );
+
+                  layout.setPadding(
+                          40,
+                          40,
+                          40,
+                          40
+                  );
+
+
+                  status =
+                          new TextView(this);
+
+                  status.setTextSize(18);
+
+                  status.setText(
+                          "Masyaanya Installer"
+                  );
+
+
+                  Button installButton =
+                          new Button(this);
+
+                  installButton.setText(
+                          "Masyaanya орнату"
+                  );
+
+
+                  installButton.setOnClickListener(
+                          v -> startInstall()
+                  );
+
+
+                  layout.addView(status);
+
+                  layout.addView(installButton);
+
+
+                  setContentView(layout);
+
+
+                  Shizuku
+                          .addRequestPermissionResultListener(
+                                  permissionListener
+                          );
+
+
+                  Shizuku
+                          .addBinderReceivedListener(
+                                  binderReceivedListener
+                          );
+
+
+                  checkShizuku();
+              }
+
+
+              private void checkShizuku() {
+
+                  try {
+
+                      if (!Shizuku.pingBinder()) {
+
+                          setStatus(
+                                  "Shizuku іске қосылмаған."
+                          );
+
+                          return;
+                      }
+
+
+                      if (Shizuku.checkSelfPermission()
+                              == PackageManager.PERMISSION_GRANTED) {
+
+                          setStatus(
+                                  "Shizuku дайын."
+                          );
+
+                      } else {
+
+                          setStatus(
+                                  "Shizuku рұқсаты керек."
+                          );
+                      }
+
+
+                  } catch (Throwable e) {
+
+                      setStatus(
+                              "Shizuku қатесі:\n"
+                                      + e.getMessage()
+                      );
+                  }
+              }
+
+
+              private void startInstall() {
+
+                  try {
+
+                      if (!Shizuku.pingBinder()) {
+
+                          setStatus(
+                                  "Алдымен Shizuku-ды іске қос."
+                          );
+
+                          return;
+                      }
+
+
+                      if (Shizuku.checkSelfPermission()
+                              != PackageManager.PERMISSION_GRANTED) {
+
+                          setStatus(
+                                  "Shizuku рұқсатын сұрап жатыр..."
+                          );
+
+                          Shizuku.requestPermission(
+                                  REQUEST_CODE
+                          );
+
+                          return;
+                      }
+
+
+                      if (installerService == null) {
+
+                          startUserService();
+
+                      } else {
+
+                          installMasyaanya();
+                      }
+
+
+                  } catch (Throwable e) {
+
+                      setStatus(
+                              "Қате:\n"
+                                      + e.getClass()
+                                      .getSimpleName()
+                                      + "\n"
+                                      + e.getMessage()
+                      );
+                  }
+              }
+
+
+              private void startUserService() {
+
+                  try {
+
+                      if (installerService != null) {
+                          installMasyaanya();
+                          return;
+                      }
+
+
+                      userServiceArgs =
+                              new Shizuku.UserServiceArgs(
+                                      new ComponentName(
+                                              this,
+                                              InstallerService.class
+                                      )
+                              )
+                                      .daemon(false)
+                                      .processNameSuffix(
+                                              "installer"
+                                      )
+                                      .debuggable(false)
+                                      .version(1)
+                                      .tag(
+                                              "masyaanya-installer"
+                                      );
+
+
+                      setStatus(
+                              "Shizuku UserService іске қосылуда..."
+                      );
+
+
+                      Shizuku.bindUserService(
+                              userServiceArgs,
+                              serviceConnection
+                      );
+
+
+                  } catch (Throwable e) {
+
+                      setStatus(
+                              "UserService қатесі:\n"
+                                      + e.getClass()
+                                      .getSimpleName()
+                                      + "\n"
+                                      + e.getMessage()
+                      );
+                  }
+              }
+
+
+              private void installMasyaanya() {
+
+                  if (installerService == null) {
+
+                      setStatus(
+                              "InstallerService әлі дайын емес."
+                      );
+
+                      return;
+                  }
+
+
+                  new Thread(() -> {
+
+                      try {
+
+                          setStatus(
+                                  "Masyaanya.apk шығарып жатыр..."
+                          );
+
+
+                          File externalDir =
+                                  getExternalFilesDir(null);
+
+
+                          if (externalDir == null) {
+
+                              throw new Exception(
+                                      "External files directory жоқ."
+                              );
+                          }
+
+
+                          File apk =
+                                  new File(
+                                          externalDir,
+                                          "Masyaanya.apk"
+                                  );
+
+
+                          try (
+                                  InputStream input =
+                                          getAssets().open(
+                                                  "Masyaanya.apk"
+                                          );
+
+                                  FileOutputStream output =
+                                          new FileOutputStream(
+                                                  apk
+                                          )
+                          ) {
+
+                              byte[] buffer =
+                                      new byte[1024 * 1024];
+
+                              int count;
+
+
+                              while (
+                                      (count =
+                                              input.read(
+                                                      buffer
+                                              )) != -1
+                              ) {
+
+                                  output.write(
+                                          buffer,
+                                          0,
+                                          count
+                                  );
+                              }
+
+
+                              output.flush();
+                          }
+
+
+                          if (!apk.exists()
+                                  || apk.length() == 0) {
+
+                              throw new Exception(
+                                      "APK файл жасалмады."
+                              );
+                          }
+
+
+                          String apkPath =
+                                  apk.getAbsolutePath();
+
+
+                          setStatus(
+                                  "APK дайын.\n"
+                                          + "Размер: "
+                                          + apk.length()
+                                          + " bytes\n\n"
+                                          + "Орнатылуда..."
+                          );
+
+
+                          installerService.install(
+                                  apkPath
+                          );
+
+
+                          setStatus(
+                                  "Masyaanya орнату командасы орындалды."
+                          );
+
+
+                      } catch (Throwable e) {
+
+                          setStatus(
+                                  "Орнату қатесі:\n"
+                                          + e.getClass()
+                                          .getSimpleName()
+                                          + "\n"
+                                          + String.valueOf(
+                                          e.getMessage()
+                                  )
+                          );
+                      }
+
+                  }).start();
+              }
+
+
+              private void setStatus(
+                      String text) {
+
+                  runOnUiThread(
+                          () -> status.setText(text)
+                  );
+              }
+
+
+              @Override
+              protected void onDestroy() {
+
+                  try {
+
+                      if (userServiceArgs != null) {
+
+                          Shizuku.unbindUserService(
+                                  userServiceArgs,
+                                  serviceConnection,
+                                  true
+                          );
+                      }
+
+                  } catch (Throwable ignored) {
+                  }
+
+
+                  Shizuku
+                          .removeRequestPermissionResultListener(
+                                  permissionListener
+                          );
+
+
+                  Shizuku
+                          .removeBinderReceivedListener(
+                                  binderReceivedListener
+                          );
+
+
+                  super.onDestroy();
+              }
+          }
+          EOF
+
+
+          echo "Android project created."
+
+          find app/src/main -type f -print
+
+
+      # ---------------------------------------------------------
+      # 7. Build
+      # ---------------------------------------------------------
+      - name: Build unsigned APK
+        shell: bash
+        run: |
+          set -e
+
+          gradle \
+            --no-daemon \
+            --stacktrace \
+            :app:assembleRelease
+
+          test -f \
+            app/build/outputs/apk/release/app-release.apk
+
+          ls -lh \
+            app/build/outputs/apk/release/app-release.apk
+
+
+      # ---------------------------------------------------------
+      # 8. Restore PKCS12 keystore
+      # ---------------------------------------------------------
+      - name: Restore signing key
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+        shell: bash
+        run: |
+          set -e
+
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "KEYSTORE_BASE64 secret is empty."
+            exit 1
+          fi
+
+          if [ -z "$KEYSTORE_PASSWORD" ]; then
+            echo "KEYSTORE_PASSWORD secret is empty."
+            exit 1
+          fi
+
+          printf '%s' "$KEYSTORE_BASE64" |
+            base64 --decode > release.p12
+
+          test -s release.p12
+
+          keytool \
+            -list \
+            -keystore release.p12 \
+            -storetype PKCS12 \
+            -storepass "$KEYSTORE_PASSWORD" \
+            >/dev/null
+
+          echo "PKCS12 keystore is valid."
+
+
+      # ---------------------------------------------------------
+      # 9. Sign APK
+      # ---------------------------------------------------------
+      - name: Zipalign and sign
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+        shell: bash
+        run: |
+          set -e
+
+          INPUT_APK="app/build/outputs/apk/release/app-release.apk"
+
+          ALIAS=$(
+            keytool \
+              -list \
+              -v \
               -keystore release.p12 \
               -storetype PKCS12 \
               -storepass "$KEYSTORE_PASSWORD" |
-          sed -n 's/^Alias name: //p' |
-          head -n 1
-      )
+            sed -n 's/^Alias name: //p' |
+            head -n 1
+          )
 
-      if [ -z "$ALIAS" ]; then
-          echo "Keystore alias not found"
-          exit 1
-      fi
+          if [ -z "$ALIAS" ]; then
+            echo "Could not detect keystore alias."
+            exit 1
+          fi
 
-      echo "Alias: $ALIAS"
+          echo "Detected alias: $ALIAS"
 
-      "$BUILD_TOOLS/apksigner" sign \
-          --ks release.p12 \
-          --ks-type PKCS12 \
-          --ks-pass env:KEYSTORE_PASSWORD \
-          --key-pass env:KEYSTORE_PASSWORD \
-          --ks-key-alias "$ALIAS" \
-          --out signed/Masyaanya-Installer.apk \
-          signed/aligned.apk
 
-      "$BUILD_TOOLS/apksigner" verify \
-          --verbose \
-          signed/Masyaanya-Installer.apk
+          BUILD_TOOLS="$ANDROID_HOME/build-tools/34.0.0"
 
-      rm -f \
-          signed/aligned.apk \
-          release.p12
 
-  - name: Upload APK
-    uses: actions/upload-artifact@v4
-    with:
-      name: Masyaanya-Installer
-      path: signed/Masyaanya-Installer.apk
-      if-no-files-found: error
-      retention-days: 30
+          "$BUILD_TOOLS/zipalign" \
+            -f \
+            4 \
+            "$INPUT_APK" \
+            Masyaanya-Installer-aligned.apk
+
+
+          "$BUILD_TOOLS/apksigner" sign \
+            --ks release.p12 \
+            --ks-type PKCS12 \
+            --ks-key-alias "$ALIAS" \
+            --ks-pass env:KEYSTORE_PASSWORD \
+            --key-pass env:KEYSTORE_PASSWORD \
+            --out Masyaanya-Installer.apk \
+            Masyaanya-Installer-aligned.apk
+
+
+          "$BUILD_TOOLS/apksigner" verify \
+            --verbose \
+            Masyaanya-Installer.apk
+
+
+          echo "Final APK:"
+          ls -lh Masyaanya-Installer.apk
+
+
+      # ---------------------------------------------------------
+      # 10. Upload final APK as GitHub Actions artifact
+      # ---------------------------------------------------------
+      - name: Upload installer APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Masyaanya-Installer
+          path: Masyaanya-Installer.apk
+          if-no-files-found: error
